@@ -2,15 +2,23 @@ openapi: 3.0.3
 info:
   title: Graph Display API
   version: 0.1.0
-  description: >
+  description: |
     Public REST API of the System Graph Explorer. Graphs are uploaded as JSON (services, databases and queues
     as nodes, calls as edges) and queried for routes: directed simple paths, filtered by node properties,
     route length and set operations. Results are Route objects that can be rendered by the UI.
+
+    **Where it is served.** The API server serves these paths at its root. On the UI's port (its nginx, or the
+    development server) every path is served both under `/api` and at the root. Two paths are also the UI's own
+    addresses: `/graphs/{graphId}` and `/graphs/{graphId}/routes/query`. A browser that loads them as a page
+    (`Accept: text/html`) gets the UI there; every other request gets the API.
+
+    **Errors.** Every error has the `ApiError` shape. A path or method that is not an operation of this document
+    answers `404` with the code `ROUTE_NOT_FOUND`.
 servers:
   - url: /api
-    description: Through the UI's nginx
+    description: On the UI's port (nginx or the development server)
   - url: /
-    description: The API server directly
+    description: At the root of the API server, or of the UI's port
 paths:
   /graphs:
     post:
@@ -57,9 +65,15 @@ paths:
             content:
               { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GraphSummary' } } } },
           }
-  /graphs/{id}:
+  /graphs/{graphId}:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: graphId,
+          in: path,
+          required: true,
+          description: The graph id (from the upload or GET /graphs),
+          schema: { type: string },
+        }
     get:
       operationId: getGraph
       summary: Graph metadata and warnings
@@ -76,23 +90,30 @@ paths:
       responses:
         '204': { description: Deleted }
         '404': { $ref: '#/components/responses/NotFound' }
-  /graphs/{id}/nodes:
+  /graphs/{graphId}/nodes:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: graphId,
+          in: path,
+          required: true,
+          description: The graph id (from the upload or GET /graphs),
+          schema: { type: string },
+        }
     get:
       operationId: getNodes
-      summary: Nodes by id (all their original properties)
+      summary: The nodes of a graph, all or by id (all their original properties)
       description: >
-        The routes returned by a query list node ids only. This returns the nodes for ids you ask for (at most 1000
-        per request; repeat the `id` parameter). Unknown ids are left out; the others are returned in the order requested.
+        Without `id`, every node of the graph. The routes returned by a query list node ids only: with `id`
+        (repeated, at most 1000 per request) only those nodes are returned. Unknown ids are left out; the others are
+        returned in the order requested.
       parameters:
         - {
             name: id,
             in: query,
-            required: true,
+            required: false,
             style: form,
             explode: true,
-            schema: { type: array, items: { type: string }, minItems: 1, maxItems: 1000 },
+            schema: { type: array, items: { type: string }, maxItems: 1000 },
           }
       responses:
         '200':
@@ -103,26 +124,33 @@ paths:
           }
         '400':
           {
-            description: No ids,
-            or more than 1000,
+            description: More than 1000 ids,
             content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } },
           }
         '404': { $ref: '#/components/responses/NotFound' }
-  /graphs/{id}/edges:
+  /graphs/{graphId}/edges:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: graphId,
+          in: path,
+          required: true,
+          description: The graph id (from the upload or GET /graphs),
+          schema: { type: string },
+        }
     get:
       operationId: getEdges
-      summary: Edges by id (normalised, one object per edge)
-      description: The edge ids of a route are `from->to`. At most 1000 ids per request; repeat the `id` parameter.
+      summary: The edges of a graph, all or by id (normalised, one object per edge)
+      description: >
+        Without `id`, every edge of the graph. The edge ids of a route are `from->to`; with `id` (repeated, at most
+        1000 per request) only those edges are returned, in the order requested.
       parameters:
         - {
             name: id,
             in: query,
-            required: true,
+            required: false,
             style: form,
             explode: true,
-            schema: { type: array, items: { type: string }, minItems: 1, maxItems: 1000 },
+            schema: { type: array, items: { type: string }, maxItems: 1000 },
           }
       responses:
         '200':
@@ -133,14 +161,19 @@ paths:
           }
         '400':
           {
-            description: No ids,
-            or more than 1000,
+            description: More than 1000 ids,
             content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } },
           }
         '404': { $ref: '#/components/responses/NotFound' }
-  /graphs/{id}/schema:
+  /graphs/{graphId}/schema:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: graphId,
+          in: path,
+          required: true,
+          description: The graph id (from the upload or GET /graphs),
+          schema: { type: string },
+        }
     get:
       operationId: getSchema
       summary: Queryable properties and kind colours (feeds the query builder and the renderer)
@@ -151,9 +184,15 @@ paths:
             content: { application/json: { schema: { $ref: '#/components/schemas/GraphSchema' } } },
           }
         '404': { $ref: '#/components/responses/NotFound' }
-  /graphs/{id}/view:
+  /graphs/{graphId}/view:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: graphId,
+          in: path,
+          required: true,
+          description: The graph id (from the upload or GET /graphs),
+          schema: { type: string },
+        }
     get:
       operationId: getView
       summary: The graph as a laid-out view of at most 200 nodes (ranked by degree)
@@ -170,9 +209,15 @@ paths:
         '200':
           { description: View, content: { application/json: { schema: { $ref: '#/components/schemas/GraphView' } } } }
         '404': { $ref: '#/components/responses/NotFound' }
-  /graphs/{id}/view/expand:
+  /graphs/{graphId}/view/expand:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: graphId,
+          in: path,
+          required: true,
+          description: The graph id (from the upload or GET /graphs),
+          schema: { type: string },
+        }
     post:
       operationId: expandView
       summary: Load the neighbours of a node ("+N" stub) or a hidden component into a view
@@ -191,9 +236,15 @@ paths:
             content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } },
           }
         '404': { $ref: '#/components/responses/NotFound' }
-  /graphs/{id}/routes/query:
+  /graphs/{graphId}/routes/query:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: graphId,
+          in: path,
+          required: true,
+          description: The graph id (from the upload or GET /graphs),
+          schema: { type: string },
+        }
     get:
       operationId: queryRoutes
       summary: Find routes
@@ -249,12 +300,33 @@ paths:
             description: The query exceeded the time limit,
             content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } },
           }
-  /graphs/{id}/links:
+  /graphs/{graphId}/links:
     parameters:
-      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: graphId,
+          in: path,
+          required: true,
+          description: The graph id (from the upload or GET /graphs),
+          schema: { type: string },
+        }
+    get:
+      operationId: getGraphLinks
+      summary: Reserved - the links of a segmented graph to other graphs
+      description: >
+        Reserved for graphs that are split over several uploads and connected on the backend. Not implemented yet:
+        always answers 501.
+      responses:
+        '501':
+          {
+            description: Not implemented,
+            content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } },
+          }
     post:
       operationId: linkGraphs
       summary: Reserved - connect segmented graphs
+      description: >
+        Reserved for connecting a graph to the other parts of a segmented graph. Not implemented yet: always
+        answers 501.
       responses:
         '501':
           {
@@ -307,7 +379,7 @@ paths:
 components:
   responses:
     NotFound:
-      description: Unknown graph or node
+      description: Unknown graph or node (code GRAPH_NOT_FOUND, NODE_NOT_FOUND or NOT_FOUND)
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
   schemas:
     ApiError:

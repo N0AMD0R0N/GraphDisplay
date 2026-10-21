@@ -1,9 +1,9 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { registerOpenApiDocs } from '@gd/api-contract/src/openapi-docs';
 import { CONTENT_TYPE_JSON, ServiceCallError, type ExpandRequest } from '@gd/api-contract';
 import { cypherLanguage } from '@gd/lang-cypher';
 import { QueryError } from '@gd/query-core';
-import { ERROR_CODES, HEALTH, MAX_ENTITY_IDS, OPENAPI_DOCS } from './constants';
+import { ERROR_CODES, HEALTH, MAX_ENTITY_IDS, OPENAPI_DOCS, edgeId } from './constants';
 import { getSchema, runQuery } from './query';
 import type { ServerDeps } from './types';
 import { expandView, getView } from './view';
@@ -11,8 +11,6 @@ import { expandView, getView } from './view';
 /** Reads the repeated `id` query parameter: `?id=a&id=b`. */
 function entityIds(value: string | string[] | undefined): string[] {
   const ids = [...new Set(value === undefined ? [] : Array.isArray(value) ? value : [value])].filter(Boolean);
-  if (ids.length === 0)
-    throw new QueryError('Give at least one id, as repeated "id" parameters', ERROR_CODES.missingIds, 400);
   if (ids.length > MAX_ENTITY_IDS) {
     throw new QueryError(`At most ${MAX_ENTITY_IDS} ids per request; split the request`, ERROR_CODES.tooManyIds, 400);
   }
@@ -75,58 +73,63 @@ export function registerApi(app: FastifyInstance, deps: ServerDeps): void {
 
   app.get('/graphs', async () => dal.listGraphs());
 
-  app.get<{ Params: { id: string } }>('/graphs/:id', async (req, reply) => {
-    const graph = await dal.getGraph(req.params.id);
+  app.get<{ Params: { graphId: string } }>('/graphs/:graphId', async (req, reply) => {
+    const graph = await dal.getGraph(req.params.graphId);
     return graph ?? reply.code(404).send(notFound('Graph not found'));
   });
 
-  app.delete<{ Params: { id: string } }>('/graphs/:id', async (req, reply) => {
-    if (!(await dal.getGraph(req.params.id))) return reply.code(404).send(notFound('Graph not found'));
-    await dal.deleteGraph(req.params.id);
+  app.delete<{ Params: { graphId: string } }>('/graphs/:graphId', async (req, reply) => {
+    if (!(await dal.getGraph(req.params.graphId))) return reply.code(404).send(notFound('Graph not found'));
+    await dal.deleteGraph(req.params.graphId);
     return reply.code(204).send();
   });
 
   // Nodes and edges are fetched separately from the routes: a route lists ids only. Unknown ids are left out,
   // the others come back in the order requested.
-  app.get<{ Params: { id: string }; Querystring: { id?: string | string[] } }>(
-    '/graphs/:id/nodes',
+  app.get<{ Params: { graphId: string }; Querystring: { id?: string | string[] } }>(
+    '/graphs/:graphId/nodes',
     async (req, reply) => {
-      const wanted = entityIds(req.query.id);
-      if (!(await dal.getGraph(req.params.id))) return reply.code(404).send(notFound('Graph not found'));
-      const { nodes } = await dal.entities(req.params.id, { nodeIds: wanted, edgeIds: [] });
+      const asked = entityIds(req.query.id);
+      if (!(await dal.getGraph(req.params.graphId))) return reply.code(404).send(notFound('Graph not found'));
+      // without ids: every node of the graph
+      const wanted = asked.length > 0 ? asked : (await dal.topology(req.params.graphId)).nodes.map((n) => n.id);
+      const { nodes } = await dal.entities(req.params.graphId, { nodeIds: wanted, edgeIds: [] });
       const byId = new Map(nodes.map((n) => [n.id, n]));
       return wanted.flatMap((id) => byId.get(id) ?? []);
     },
   );
 
-  app.get<{ Params: { id: string }; Querystring: { id?: string | string[] } }>(
-    '/graphs/:id/edges',
+  app.get<{ Params: { graphId: string }; Querystring: { id?: string | string[] } }>(
+    '/graphs/:graphId/edges',
     async (req, reply) => {
-      const wanted = entityIds(req.query.id);
-      if (!(await dal.getGraph(req.params.id))) return reply.code(404).send(notFound('Graph not found'));
-      const { edges } = await dal.entities(req.params.id, { nodeIds: [], edgeIds: wanted });
+      const asked = entityIds(req.query.id);
+      if (!(await dal.getGraph(req.params.graphId))) return reply.code(404).send(notFound('Graph not found'));
+      // without ids: every edge of the graph
+      const wanted =
+        asked.length > 0 ? asked : (await dal.topology(req.params.graphId)).edges.map(([from, to]) => edgeId(from, to));
+      const { edges } = await dal.entities(req.params.graphId, { nodeIds: [], edgeIds: wanted });
       const byId = new Map(edges.map((e) => [e.id, e]));
       return wanted.flatMap((id) => byId.get(id) ?? []);
     },
   );
 
-  app.get<{ Params: { id: string } }>('/graphs/:id/schema', async (req, reply) => {
-    const schema = await getSchema(queryDeps, req.params.id);
+  app.get<{ Params: { graphId: string } }>('/graphs/:graphId/schema', async (req, reply) => {
+    const schema = await getSchema(queryDeps, req.params.graphId);
     return schema ?? reply.code(404).send(notFound('Graph not found'));
   });
 
-  app.get<{ Params: { id: string }; Querystring: { pin?: string; limit?: string } }>(
-    '/graphs/:id/view',
+  app.get<{ Params: { graphId: string }; Querystring: { pin?: string; limit?: string } }>(
+    '/graphs/:graphId/view',
     async (req, reply) => {
-      if (!(await dal.getGraph(req.params.id))) return reply.code(404).send(notFound('Graph not found'));
+      if (!(await dal.getGraph(req.params.graphId))) return reply.code(404).send(notFound('Graph not found'));
       const pins = req.query.pin ? req.query.pin.split(',').filter(Boolean) : [];
       const cap = req.query.limit ? Number(req.query.limit) : undefined;
-      return getView({ dal }, req.params.id, { pins, cap: Number.isFinite(cap) ? cap : undefined });
+      return getView({ dal }, req.params.graphId, { pins, cap: Number.isFinite(cap) ? cap : undefined });
     },
   );
 
-  app.post<{ Params: { id: string }; Body: ExpandRequest }>('/graphs/:id/view/expand', async (req, reply) => {
-    if (!(await dal.getGraph(req.params.id))) return reply.code(404).send(notFound('Graph not found'));
+  app.post<{ Params: { graphId: string }; Body: ExpandRequest }>('/graphs/:graphId/view/expand', async (req, reply) => {
+    if (!(await dal.getGraph(req.params.graphId))) return reply.code(404).send(notFound('Graph not found'));
     const body = req.body;
     if (
       !body ||
@@ -140,14 +143,14 @@ export function registerApi(app: FastifyInstance, deps: ServerDeps): void {
         400,
       );
     }
-    return expandView({ dal }, req.params.id, body);
+    return expandView({ dal }, req.params.graphId, body);
   });
 
   // The query travels in the URL (GET), so a query can be bookmarked, shared and seen in the browser's address bar.
   app.get<{
-    Params: { id: string };
+    Params: { graphId: string };
     Querystring: { q?: string; limit?: string; maxHops?: string; routeMode?: string; includeSubRoutes?: string };
-  }>('/graphs/:id/routes/query', async (req) => {
+  }>('/graphs/:graphId/routes/query', async (req) => {
     const { q, limit, maxHops, routeMode, includeSubRoutes } = req.query;
     if (q === undefined || q === '') {
       throw new QueryError('Missing "q": the query as JSON (a set tree)', ERROR_CODES.missingQuery, 400);
@@ -158,7 +161,7 @@ export function registerApi(app: FastifyInstance, deps: ServerDeps): void {
     } catch {
       throw new QueryError('"q" is not valid JSON', ERROR_CODES.invalidQueryParam, 400);
     }
-    return runQuery(queryDeps, req.params.id, {
+    return runQuery(queryDeps, req.params.graphId, {
       query,
       ...(limit !== undefined && { limit: Number(limit) }),
       ...(maxHops !== undefined && { maxHops: Number(maxHops) }),
@@ -168,10 +171,22 @@ export function registerApi(app: FastifyInstance, deps: ServerDeps): void {
   });
 
   // Reserved: connecting segmented graphs (WorkPlan A9).
-  app.post('/graphs/:id/links', async (_req, reply) =>
+  const linksReserved = async (_req: unknown, reply: FastifyReply) =>
     reply
       .code(501)
-      .send({ error: { status: 501, code: ERROR_CODES.notImplemented, message: 'Linking graphs is reserved' } }),
+      .send({ error: { status: 501, code: ERROR_CODES.notImplemented, message: 'Linking graphs is reserved' } });
+  app.get('/graphs/:graphId/links', linksReserved);
+  app.post('/graphs/:graphId/links', linksReserved);
+
+  // an unknown path or method answers in the API's error format too
+  app.setNotFoundHandler((req, reply) =>
+    reply.code(404).send({
+      error: {
+        status: 404,
+        code: ERROR_CODES.routeNotFound,
+        message: `No such operation: ${req.method} ${req.url.split('?')[0]}`,
+      },
+    }),
   );
 
   app.get('/health', async () => {

@@ -28,11 +28,14 @@ export const SERVER_DEFAULTS = {
 /** The most node or edge ids one request may ask for (the URL carries them). */
 export const MAX_ENTITY_IDS = 1000;
 
+/** The id of the edge from one node to another (as in the routes). */
+export const edgeId = (from: string, to: string): string => `${from}->${to}`;
+
 export const ERROR_CODES = {
   notFound: 'NOT_FOUND',
   graphNotFound: 'GRAPH_NOT_FOUND',
   nodeNotFound: 'NODE_NOT_FOUND',
-  missingIds: 'MISSING_IDS',
+  routeNotFound: 'ROUTE_NOT_FOUND',
   tooManyIds: 'TOO_MANY_IDS',
   missingQuery: 'MISSING_QUERY',
   invalidQueryParam: 'INVALID_QUERY_PARAM',

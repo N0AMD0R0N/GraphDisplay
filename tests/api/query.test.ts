@@ -370,10 +370,19 @@ describe('GET /graphs/:id/nodes and /edges', () => {
     ]);
   });
 
-  it('400 without ids or with too many; 404 for an unknown graph', async () => {
-    const none = await stack.api.request<Json>('GET', `/graphs/${security}/nodes`);
-    expect(none.status).toBe(400);
-    expect(none.body.error.code).toBe('MISSING_IDS');
+  it('without ids: every node and every edge of the graph', async () => {
+    const topology = await stack.dalClient.topology(security);
+    const nodes = await stack.api.request<Json>('GET', `/graphs/${security}/nodes`);
+    expect(nodes.status).toBe(200);
+    expect(nodes.body.map((n: Json) => n.id).sort()).toEqual(topology.nodes.map((n) => n.id).sort());
+    expect(nodes.body.every((n: Json) => typeof n.name === 'string' && 'kind' in n)).toBe(true);
+    const edges = await stack.api.request<Json>('GET', `/graphs/${security}/edges`);
+    expect(edges.status).toBe(200);
+    expect(edges.body.map((e: Json) => e.id).sort()).toEqual(topology.edges.map(([f, t]) => `${f}->${t}`).sort());
+    expect(edges.body.every((e: Json) => e.id === `${e.from}->${e.to}`)).toBe(true);
+  });
+
+  it('400 with too many ids; 404 for an unknown graph', async () => {
     const many = await getEntities(
       security,
       'nodes',

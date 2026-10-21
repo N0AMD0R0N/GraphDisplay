@@ -1,4 +1,15 @@
 # Template: ${SERVER_HOST} and ${API_PORT} are filled from the environment when the container starts.
+#
+# The browser sees a single origin. The API is reachable both under /api/ and at the root, at the paths of
+# packages/api-contract/openapi.yaml. The UI's own addresses use the same paths as the API (/graphs/<id> and
+# /graphs/<id>/routes/query): a browser loading them as a page gets the UI, every other request gets the API.
+
+# a page load (navigation) asks for HTML; fetch, curl and Swagger UI's "Try it out" do not
+map $http_accept $page_load {
+    default 0;
+    "~text/html" 1;
+}
+
 server {
     listen 80;
     root /usr/share/nginx/html;
@@ -7,9 +18,28 @@ server {
     # queries are sent in the URL
     large_client_header_buffers 4 64k;
 
-    # the browser sees a single origin: /api/* -> API server (CORS stays out of scope)
+    # the API under /api/ (what the UI itself calls)
     location /api/ {
         proxy_pass http://${SERVER_HOST}:${API_PORT}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_read_timeout 120s;
+    }
+
+    # the API at the root: the paths the UI never uses as pages
+    location ~ ^/(health|graphs|graphs/[^/]+/(schema|nodes|edges|view|view/expand|links))/?$ {
+        proxy_pass http://${SERVER_HOST}:${API_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_read_timeout 120s;
+    }
+
+    # the paths the UI shares with the API: the page for a page load, the API otherwise
+    location ~ ^/graphs/[^/]+(/routes/query)?/?$ {
+        if ($page_load) {
+            rewrite ^ /index.html last;
+        }
+        proxy_pass http://${SERVER_HOST}:${API_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_read_timeout 120s;

@@ -65,7 +65,7 @@ afterAll(async () => {
 
 describe('OpenAPI documents', () => {
   it.each([
-    ['public API', 'packages/api-contract/openapi.yaml', 15],
+    ['public API', 'packages/api-contract/openapi.yaml', 16],
     ['ingestion service', 'packages/ingest-contract/ingest.openapi.yaml', 8],
     ['data access layer', 'packages/dal-contract/dal.openapi.yaml', 17],
   ])('%s: valid structure with unique operation ids', (_name, file, count) => {
@@ -76,6 +76,26 @@ describe('OpenAPI documents', () => {
     expect(ids.every(Boolean)).toBe(true);
     expect(new Set(ids).size).toBe(ids.length);
     for (const o of ops) expect(Object.keys(o.op.responses ?? {}).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    'packages/api-contract/openapi.yaml',
+    'packages/ingest-contract/ingest.openapi.yaml',
+    'packages/dal-contract/dal.openapi.yaml',
+  ])('%s: no operation has two parameters with the same name (Swagger UI would show only one)', (file) => {
+    const spec = load(file);
+    for (const [path, item] of Object.entries(spec.paths)) {
+      for (const method of METHODS.filter((m) => item[m])) {
+        const names = [...(item.parameters ?? []), ...(item[method].parameters ?? [])].map((p: Json) => p.name);
+        expect({
+          operation: `${method.toUpperCase()} ${path}`,
+          duplicates: names.filter((n, i) => names.indexOf(n) !== i),
+        }).toEqual({
+          operation: `${method.toUpperCase()} ${path}`,
+          duplicates: [],
+        });
+      }
+    }
   });
 
   it('public API: every $ref resolves to a defined schema or response', () => {
