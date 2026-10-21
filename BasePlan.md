@@ -35,8 +35,6 @@ Input lifecycle
 - input is loaded via api, processed graphs should be stored in a cache structure such that switching between graphs will be quick if necessary (cache life-time is configurable, defaulting to 1 day) - for the purpose of this project, the npm "start" script will use the example json as the only json loaded
 - graphs are to be validated upon post, missing nodes and edges are a special case - these are "incomplete" but can still be shown in the graph deriving the data about them from the other elements of the graph that reference them - if data is in an invalid format return a 401 error, if data is missing but can be derived/processed return a 207 response with 
 
-
-
 Performance targets
 - "Standard" will refer to query of up to 20 conditions, "heavy" query will refer to query with up to 70 conditions
 - we are expecting an initial scale of about 1000 nodes and 10000 edges, however we will keep an option for segmented graphs (i.e. a large graph of over 1000 nodes might be split between multiple JSON files and need to be connected at the backend level at some point, account for that by api but do not implement a solution yet)
@@ -70,3 +68,12 @@ Testing
 Missing non-functional items
 - for now we will not introduce additional features (such as CORS, Auth, API versioning, etc.)
 - a readme will be added at a later stage of the plan
+
+JSON
+- "incomplete" nodes and edges are to be derived and understood from the other elements of the graph JSON
+- "to" field is clearly a union type (string | array<string>)
+- when processing add unique ids to nodes and edges (however the field "name" should be treated as unique, duplicate node names are erroneous)
+- some node and edge properties are optional (undefined by default), nodes must have "name", edges must have "from" and "to", unique "id" will be added automatically.
+- "metadata" field is a dictionary of optional properties
+- ignore "\n" terminations, and make sure all strings are formatted uniformly (trimmed, lower cased, etc.).
+- detect cycles and missing elements at the parser level.
