@@ -1,0 +1,21 @@
+# Template: ${SERVER_HOST} and ${API_PORT} are filled from the environment when the container starts.
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    index index.html;
+    client_max_body_size 64m;
+    # queries are sent in the URL
+    large_client_header_buffers 4 64k;
+
+    # the browser sees a single origin: /api/* -> API server (CORS stays out of scope)
+    location /api/ {
+        proxy_pass http://${SERVER_HOST}:${API_PORT}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_read_timeout 120s;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}

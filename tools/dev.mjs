@@ -3,29 +3,32 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import {
+  CHILD_STOP_SIGNAL,
+  COMPOSE_FILES,
+  DEFAULT_PORTS,
+  DEFAULT_SEED_NAME,
+  DOCKER_SERVICES,
+  LOCALHOST,
+  SEED_FILE,
+  SHUTDOWN_SIGNALS,
+  httpUrl,
+} from './constants.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const win = process.platform === 'win32';
 const env = process.env;
-const port = { dal: env.DAL_LB_PORT ?? '4000', ingest: env.INGEST_PORT ?? '5000', server: env.PORT ?? '3001' };
+const port = {
+  dal: env.DAL_LB_PORT ?? DEFAULT_PORTS.dal,
+  ingest: env.INGEST_PORT ?? DEFAULT_PORTS.ingest,
+  server: env.PORT ?? DEFAULT_PORTS.server,
+  client: env.CLIENT_DEV_PORT ?? DEFAULT_PORTS.client,
+};
 
 console.log('> starting Neo4j, Redis, the DAL replicas and the DAL load balancer in Docker');
 const compose = spawnSync(
   'docker',
-  [
-    'compose',
-    '-f',
-    'docker/compose.yaml',
-    '-f',
-    'docker/compose.dev.yaml',
-    'up',
-    '-d',
-    '--build',
-    'neo4j',
-    'redis',
-    'dal',
-    'dal-lb',
-  ],
+  ['compose', ...COMPOSE_FILES.flatMap((file) => ['-f', file]), 'up', '-d', '--build', ...DOCKER_SERVICES],
   { cwd: root, stdio: 'inherit', shell: win },
 );
 if (compose.status !== 0) process.exit(compose.status ?? 1);
@@ -48,31 +51,30 @@ const start = (label, cmd, args, extraEnv = {}, cwd = root) => {
   children.push(child);
 };
 
-const dalUrl = `http://127.0.0.1:${port.dal}`;
+const dalUrl = httpUrl(LOCALHOST, port.dal);
 start('ingest', 'npx', ['tsx', 'watch', 'apps/ingest/src/main.ts'], {
   INGEST_PORT: port.ingest,
   DAL_URL: dalUrl,
-  SEED_FILE: resolve(root, 'train-ticket-be.json'),
-  SEED_NAME: env.SEED_NAME ?? 'train-ticket-be',
+  SEED_FILE: resolve(root, SEED_FILE),
+  SEED_NAME: env.SEED_NAME ?? DEFAULT_SEED_NAME,
   SEED_PIN: 'true',
 });
 start('server', 'npx', ['tsx', 'watch', 'apps/server/src/main.ts'], {
   PORT: port.server,
   DAL_URL: dalUrl,
-  INGEST_URL: `http://127.0.0.1:${port.ingest}`,
+  INGEST_URL: httpUrl(LOCALHOST, port.ingest),
 });
-start('client', 'npx', ['vite'], { API_URL: `http://127.0.0.1:${port.server}` }, resolve(root, 'apps/client'));
+start('client', 'npx', ['vite'], { API_URL: httpUrl(LOCALHOST, port.server) }, resolve(root, 'apps/client'));
 
 console.log(
-  `\n  client:  http://127.0.0.1:5173\n  api:     http://127.0.0.1:${port.server}\n  stop:    Ctrl+C (the Docker services keep running; npm run stop removes them)\n`,
+  `\n  client:  ${httpUrl(LOCALHOST, port.client)}\n  api:     ${httpUrl(LOCALHOST, port.server)}\n  stop:    Ctrl+C (the Docker services keep running; npm run stop removes them)\n`,
 );
 
 const shutdown = () => {
   for (const child of children) {
     if (win) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-    else child.kill('SIGTERM');
+    else child.kill(CHILD_STOP_SIGNAL);
   }
   process.exit(0);
 };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+for (const signal of SHUTDOWN_SIGNALS) process.on(signal, shutdown);

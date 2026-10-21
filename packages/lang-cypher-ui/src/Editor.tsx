@@ -1,6 +1,6 @@
 import { Component, type ReactNode } from 'react';
 import { CypherEditor } from '@neo4j-cypher/react-codemirror';
-import type { GraphSchema } from '@gd/api-contract';
+import { PALETTE, type GraphSchema } from '@gd/api-contract';
 
 export interface EditorProps {
   value: string;
@@ -9,7 +9,12 @@ export interface EditorProps {
   height?: number | string;
 }
 
-const frame = { border: '1px solid #cdd3dd', borderRadius: 6, overflow: 'auto', background: '#fff' } as const;
+const frame = {
+  border: `1px solid ${PALETTE.frameBorder}`,
+  borderRadius: 6,
+  overflow: 'auto',
+  background: PALETTE.white,
+} as const;
 
 /** If the editor component fails, the query can still be edited as plain text. */
 class EditorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {

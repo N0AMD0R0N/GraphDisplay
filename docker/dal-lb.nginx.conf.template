@@ -1,0 +1,24 @@
+# Template: ${DAL_HOST} and ${DAL_PORT} are filled from the environment when the container starts.
+# Round-robin load balancer in front of the stateless DAL replicas (WorkPlan A13.1).
+# Docker's embedded DNS returns every replica of the `dal` service; the variable in proxy_pass makes nginx
+# re-resolve every few seconds, so replicas can be added, removed or restarted without reloading nginx.
+resolver 127.0.0.11 valid=5s ipv6=off;
+
+server {
+    listen ${DAL_PORT};
+    client_max_body_size 256m;
+
+    location / {
+        set $upstream http://${DAL_HOST}:${DAL_PORT};
+        proxy_pass $upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+        # passive failover; non-idempotent POSTs are never retried by nginx
+        proxy_next_upstream error timeout http_502 http_503;
+        proxy_next_upstream_tries 3;
+    }
+}

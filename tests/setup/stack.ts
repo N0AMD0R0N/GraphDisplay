@@ -4,8 +4,8 @@ import { DalClient } from '@gd/dal-contract';
 import { IngestClient } from '@gd/ingest-contract';
 import { Neo4jEngine } from '@gd/engine-neo4j';
 import { DEFAULT_CONFIG } from '@gd/graph-core';
-import { createDal, type Dal } from '../../apps/dal/src/app';
-import type { DalConfig } from '../../apps/dal/src/config';
+import { createDal } from '../../apps/dal/src/app';
+import type { Dal, DalConfig } from '../../apps/dal/src/types';
 import { createIngestApp } from '../../apps/ingest/src/app';
 import { createServer } from '../../apps/server/src/app';
 

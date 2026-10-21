@@ -1,5 +1,5 @@
 import { RESERVED_SLOTS, hueDistance } from '../../apps/dal/src/colors';
-import { severityColor } from '../../apps/client/src/graph/severity';
+import { severityColor } from '../../apps/client/src/lib/severity';
 import { lightTheme } from '../../apps/client/src/theme';
 
 /** Hue of a #rrggbb colour in degrees. */

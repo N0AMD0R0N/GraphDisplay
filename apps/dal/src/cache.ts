@@ -1,8 +1,6 @@
 import type { Redis } from 'ioredis';
-
-export interface Logger {
-  warn(msg: string): void;
-}
+import { REDIS_KEYS } from './constants';
+import type { Logger } from './types';
 
 /**
  * Redis cache for derived artefacts (WorkPlan §3.4). All keys of a graph are tracked in
@@ -17,11 +15,11 @@ export class Cache {
   ) {}
 
   private key(graphId: string, artifact: string, key?: string): string {
-    return `graph:${graphId}:${artifact}${key ? `:${key}` : ''}`;
+    return REDIS_KEYS.graphArtifact(graphId, artifact, key);
   }
 
   private keysKey(graphId: string): string {
-    return `graph:${graphId}:keys`;
+    return REDIS_KEYS.graphKeys(graphId);
   }
 
   async get(graphId: string, artifact: string, key?: string): Promise<string | null> {

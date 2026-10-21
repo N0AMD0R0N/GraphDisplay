@@ -1,14 +1,6 @@
-import { parseSeverityScale, parseSinkKinds, type IngestConfig } from '@gd/graph-core';
-
-export interface IngestServiceConfig extends IngestConfig {
-  port: number;
-  dalUrl: string;
-  seedFile: string | undefined;
-  /** Name of the seeded graph; defaults to the file name. */
-  seedName: string | undefined;
-  seedPin: boolean;
-  maxUploadBytes: number;
-}
+import { parseSeverityScale, parseSinkKinds } from '@gd/graph-core';
+import { ENV_VARS, INGEST_DEFAULTS, SEED_PIN_ENABLED } from './constants';
+import type { IngestServiceConfig } from './types';
 
 const num = (value: string | undefined, fallback: number): number => {
   const n = Number(value);
@@ -17,13 +9,13 @@ const num = (value: string | undefined, fallback: number): number => {
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): IngestServiceConfig {
   return {
-    port: num(env.INGEST_PORT, 5000),
-    dalUrl: env.DAL_URL ?? 'http://127.0.0.1:4000',
-    seedFile: env.SEED_FILE || undefined,
-    seedName: env.SEED_NAME || undefined,
-    seedPin: env.SEED_PIN === 'true',
-    maxUploadBytes: num(env.MAX_UPLOAD_BYTES, 50 * 1024 * 1024),
-    sinkKinds: parseSinkKinds(env.SINK_KINDS),
-    severityScale: parseSeverityScale(env.SEVERITY_SCALE),
+    port: num(env[ENV_VARS.port], INGEST_DEFAULTS.port),
+    dalUrl: env[ENV_VARS.dalUrl] ?? INGEST_DEFAULTS.dalUrl,
+    seedFile: env[ENV_VARS.seedFile] || undefined,
+    seedName: env[ENV_VARS.seedName] || undefined,
+    seedPin: env[ENV_VARS.seedPin] === SEED_PIN_ENABLED,
+    maxUploadBytes: num(env[ENV_VARS.maxUploadBytes], INGEST_DEFAULTS.maxUploadBytes),
+    sinkKinds: parseSinkKinds(env[ENV_VARS.sinkKinds]),
+    severityScale: parseSeverityScale(env[ENV_VARS.severityScale]),
   };
 }

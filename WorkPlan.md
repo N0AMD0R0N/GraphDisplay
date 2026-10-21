@@ -517,9 +517,10 @@ The server computes the full-graph layout on the first view request and caches i
 | Server image | `docker/server.Dockerfile` | Multi-stage: install workspaces → build `apps/server` and its packages → slim Node 24 runtime image |
 | Ingest image | `docker/ingest.Dockerfile` | Multi-stage: build `apps/ingest` + `graph-core` + `ingest-contract` + `dal-contract` → slim Node 24 runtime image |
 | DAL image | `docker/dal.Dockerfile` | Multi-stage: build `apps/dal` + `engine-neo4j` + `dal-contract` → slim Node 24 runtime image |
-| DAL load-balancer config | `docker/dal-lb.nginx.conf` | `upstream dal { server dal:4000 max_fails=3 fail_timeout=10s; keepalive 32; }`, round-robin, `proxy_next_upstream` for idempotent methods, `/dal/health` pass-through |
+| DAL load-balancer config | `docker/dal-lb.nginx.conf.template` (host and port filled from `DAL_HOST` / `DAL_PORT` at start) | `upstream dal { server dal:4000 max_fails=3 fail_timeout=10s; keepalive 32; }`, round-robin, `proxy_next_upstream` for idempotent methods, `/dal/health` pass-through |
 | Client image | `docker/client.Dockerfile` | Multi-stage: build `apps/client` with Vite → `nginx:alpine` runtime |
-| nginx config | `docker/nginx.conf` | Static file serving with SPA fallback; `location /api/ → http://server:3000/` |
+| nginx config | `docker/client.nginx.conf.template` | Static file serving with SPA fallback; `location /api/ → http://${SERVER_HOST}:${API_PORT}/` (filled from the environment at start) |
+| Kubernetes | `k8s/` (Kustomize) | The same services as the compose file; addresses and ports in `k8s/configmap.yaml`, the variables of `.env.example` (see `k8s/README.md`) |
 | Volumes | `neo4j-data`, `neo4j-logs` | Neo4j persistence (E4). Redis has no volume. |
 | Bind mount | `./train-ticket-be.json → /seed/graph.json:ro` (ingest container) | Seed input for the ingestion service (A11) |
 | Network | `graphdisplay` (bridge) | Internal service-to-service traffic. Only the ports in E2 are published, on `127.0.0.1`. |
@@ -594,19 +595,27 @@ Dependency direction: `apps → lang-*/engine-* → query-core → api-contract`
 
 | Module | Responsibility | Related |
 |---|---|---|
-| `app` | Providers (TanStack Query, `ThemeProvider`), layout frame | B2, B7 |
-| `api` | Generated client + TanStack Query hooks (`useGraphs`, `useSchema`, `useView`, `useRouteQuery`) | A1.1 |
-| `store` | Zustand store: selected graph and route, view mode, open tooltip, expanded stubs, drawer state | B2 |
-| `theme` | Light theme tokens; colour map from `/schema` merged into the theme; prepared for a dark theme | C10, §3.5 |
-| `layout/TopBar` | Graph picker, view-mode toggle, route stepper, warnings chip, progress bar | C1, C5, C9 |
-| `layout/QueryDrawer` | Collapsible drawer with Builder / Raw tabs, the presets menu and the set-tree composer | C1, B3, B3.1, B4 |
-| `graph/Canvas` | `ReactFlow` setup, `fitView`, Controls, Background | B6 |
-| `graph/nodes` | `KindNode`, `GhostMarker`, `OverflowStub` | C2, C2.1, C4, C7 |
-| `graph/edges` | Smoothstep edge with highlight state | C3, C6 |
-| `graph/NodeDetails` | `NodeToolbar` card (click-to-open, single instance) | C8 |
-| `graph/overlays` | Empty-result overlay, hidden-components chip and list | C7, C9 |
-| `routes/RouteList` | Expandable, virtualised list of routes | C5 |
-| `routes/routeLayout` | Client-side layout for single-route views | B5 |
+| `main`, `pages/ExplorerPage` | Providers (TanStack Query, `ThemeProvider`); the one page: top bar, query drawer and canvas, address-bar sync, keyboard shortcuts | B2, B7 |
+| `api` | Typed client + TanStack Query hooks (`useGraphs`, `useSchema`, `useView`) | A1.1 |
+| `store` | Zustand store: selected graph and route, view mode, open node, focus, drawer state | B2 |
+| `theme` | Theme tokens, built from the shared palette (`packages/api-contract/src/colors.ts`, the only file with colour values) | C10, §3.5 |
+| `constants` | API base path, dev-server settings, node size | |
+| `types/` | Data objects: flow node data, highlight, block, URL state, UI state, props of shared components | |
+| `lib/` | Pure logic: `highlight`, `severity`, `blocks`, `urlState`, `urlSync` | C12–C15 |
+| `hooks/useRouteNodes` | Fetches the nodes of the routes of the current result | |
+| `components/TopBar` | Graph picker, view-mode toggle, route stepper, warnings chip, progress bar | C1, C5, C9 |
+| `components/QueryDrawer` | Collapsible drawer: composes the query blocks and the run options | C1, B3, B4 |
+| `components/QueryBlockCard`, `SetOperatorRow` | One query (Builder / Raw tabs, presets) and the operator between two queries | B3.1 |
+| `components/Button`, `Message`, `OptionsRow` | Shared styled primitives of the drawer | |
+| `components/Canvas` | `ReactFlow` setup, `fitView`, Controls, Background | B6 |
+| `components/KindNode`, `GhostNode`, `StubNode` (+ `NodeBox`, `NodeDot`, `NodeLabel`, `nodeTypes`) | The three node renderers and their shared parts | C2, C2.1, C4, C7 |
+| `components/NodeDetails` | `NodeToolbar` card (click-to-open, single instance) | C8 |
+| `components/Overlays`, `FocusChip`, `Legend` | Empty-result overlay, hidden-components chip, focus summary, legend | C7, C9 |
+| `components/RouteList` | Virtualised list of routes, coloured by vulnerability severity | C5 |
+
+Every service app follows the same layout: `app.ts` (wiring), `api.ts` (the endpoints), `types/` (data objects),
+`constants.ts` (environment variable names, defaults, error codes, key names). Shared constants (ports, loopback,
+signals) are in `packages/api-contract/src/constants.ts`.
 
 ### 11.6 Tooling and test components
 
@@ -663,7 +672,7 @@ All phases P0–P9 are implemented. The application runs under Docker Compose (`
 
 | What | Result |
 |---|---|
-| `npm test` (type-check, then Jest with Testcontainers for Neo4j and Redis) | 15 suites, 294 tests passing; writes `reports/test-report-<timestamp>.json` |
+| `npm test` (type-check, then Jest with Testcontainers for Neo4j and Redis) | 16 suites, 295 tests passing; writes `reports/test-report-<timestamp>.json` |
 | `npm run test:bail` | Stops at the first failing test, skips the rest, prints the failure reason, exits non-zero (checked with a deliberately failing probe test) |
 | `npm run lint`, type-check | Clean, default ESLint recommended rules |
 | Performance test (1,000 nodes / 10,000 edges) | Timings recorded in `reports/perf-<timestamp>.json`, not gated (see §12.3) |

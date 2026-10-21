@@ -1,7 +1,8 @@
-import { DEFAULTS, httpTransport } from '@gd/api-contract';
+import { ALL_INTERFACES, DEFAULTS, SHUTDOWN_SIGNALS, httpTransport } from '@gd/api-contract';
 import { DalClient } from '@gd/dal-contract';
 import { IngestClient } from '@gd/ingest-contract';
 import { createServer } from './app';
+import { ENV_VARS, SERVER_DEFAULTS } from './constants';
 
 const num = (value: string | undefined, fallback: number): number => {
   const n = Number(value);
@@ -10,25 +11,30 @@ const num = (value: string | undefined, fallback: number): number => {
 
 async function main() {
   const env = process.env;
-  const dal = new DalClient(httpTransport(env.DAL_URL ?? 'http://127.0.0.1:4000'));
+  const dal = new DalClient(httpTransport(env[ENV_VARS.dalUrl] ?? SERVER_DEFAULTS.dalUrl));
   const ingest = new IngestClient(
-    httpTransport(env.INGEST_URL ?? 'http://127.0.0.1:5000', num(env.INGEST_TIMEOUT_MS, 120_000)),
+    httpTransport(
+      env[ENV_VARS.ingestUrl] ?? SERVER_DEFAULTS.ingestUrl,
+      num(env[ENV_VARS.ingestTimeoutMs], SERVER_DEFAULTS.ingestTimeoutMs),
+    ),
   );
   const app = createServer({
     dal,
     ingest,
-    limits: { maxHops: num(env.MAX_HOPS, DEFAULTS.maxHops), defaultLimit: num(env.DEFAULT_LIMIT, DEFAULTS.limit) },
-    maxUploadBytes: num(env.MAX_UPLOAD_BYTES, 50 * 1024 * 1024),
+    limits: {
+      maxHops: num(env[ENV_VARS.maxHops], DEFAULTS.maxHops),
+      defaultLimit: num(env[ENV_VARS.defaultLimit], DEFAULTS.limit),
+    },
+    maxUploadBytes: num(env[ENV_VARS.maxUploadBytes], SERVER_DEFAULTS.maxUploadBytes),
     logger: true,
   });
-  await app.listen({ port: num(env.PORT, 3001), host: '0.0.0.0' });
+  await app.listen({ port: num(env[ENV_VARS.port], SERVER_DEFAULTS.port), host: ALL_INTERFACES });
 
   const shutdown = async () => {
     await app.close();
     process.exit(0);
   };
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  for (const signal of SHUTDOWN_SIGNALS) process.on(signal, shutdown);
 }
 
 main().catch((e) => {

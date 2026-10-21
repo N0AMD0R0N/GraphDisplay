@@ -27,7 +27,7 @@ const Wrap = styled.div`
     padding: 6px;
   }
   .ruleGroup .ruleGroup {
-    background: #fff;
+    background: ${(p) => p.theme.colors.white};
   }
   select,
   input {
@@ -35,7 +35,7 @@ const Wrap = styled.div`
     padding: 3px 5px;
     border: 1px solid ${(p) => p.theme.colors.border};
     border-radius: 4px;
-    background: #fff;
+    background: ${(p) => p.theme.colors.white};
     max-width: 100%;
   }
   .rule,
@@ -50,11 +50,11 @@ const Wrap = styled.div`
     cursor: pointer;
     border: 1px solid ${(p) => p.theme.colors.border};
     border-radius: 4px;
-    background: #fff;
+    background: ${(p) => p.theme.colors.white};
     padding: 2px 8px;
   }
   button:hover {
-    background: #eef2fb;
+    background: ${(p) => p.theme.colors.hover};
   }
 `;
 

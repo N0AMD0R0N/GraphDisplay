@@ -1,18 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { ApiError, GraphSchema, NormalizedGraph, UploadResponse, Warning } from '@gd/api-contract';
-import type { DalClient } from '@gd/dal-contract';
 import type { IngestOutcome, RebuildResponse } from '@gd/ingest-contract';
 import { discoverSchema, finalizeGraph, parseGraph, type IngestConfig, type RawGraph } from '@gd/graph-core';
-
-export interface PipelineDeps {
-  dal: DalClient;
-  config: IngestConfig;
-}
-
-export interface PipelineOptions {
-  name?: string;
-  pinned?: boolean;
-}
+import { ERROR_CODES } from './constants';
+import type { PipelineDeps, PipelineOptions } from './types';
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
@@ -47,7 +38,7 @@ async function storeSchema(deps: PipelineDeps, graphId: string, graph: Normalize
 }
 
 function invalid(message: string, issues: { path?: string; message: string }[]): IngestOutcome {
-  const body: ApiError = { error: { status: 401, code: 'INVALID_GRAPH', message, issues } };
+  const body: ApiError = { error: { status: 401, code: ERROR_CODES.invalidGraph, message, issues } };
   return { status: 401, body };
 }
 

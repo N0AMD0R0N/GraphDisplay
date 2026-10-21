@@ -91,6 +91,10 @@ browser ─► nginx ─► API server ─┬─► ingestion service ─┐
 - `apps/client` Vite + React + React Flow + styled-components
 - `packages/*` shared contracts and the replaceable query-language / engine boundary (`query-core`, `lang-cypher`, `lang-cypher-ui`, `engine-neo4j`)
 
+Each app is laid out the same way: `app.ts` (wiring), `api.ts` (the endpoints), `types/` (data objects) and `constants.ts`; in the client the components are in `src/components` (one file each), the page in `src/pages`, pure logic in `src/lib`. Every colour comes from `packages/api-contract/src/colors.ts`.
+
+Addresses and ports are environment values: `docker/compose.yaml` takes them from `.env` (see `.env.example`), the nginx configs are templates filled from them, and `k8s/` holds Kustomize manifests for a Kubernetes cluster (see `k8s/README.md`).
+
 Graphs expire after `CACHE_TTL_SECONDS` (default one day) unless pinned; the seeded graph is pinned.
 
 ## Documents
@@ -108,3 +112,4 @@ Graphs expire after `CACHE_TTL_SECONDS` (default one day) unless pinned; the see
 2. utilize Opus 5.5 to analyze both the plan and the JSON document for gaps in planning.
 3. expand options for implementations and establish a detailed workplan
 4. implementation via Sonnet
+5. high-level fixes and UI changes (query mirrored in the address bar, node/edge highlighting, vulnerability markers, GET query endpoint returning routes only)

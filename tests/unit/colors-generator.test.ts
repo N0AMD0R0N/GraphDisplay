@@ -10,8 +10,8 @@ import {
   hueDistance,
   pickSlot,
   slotToHex,
-  type Slot,
 } from '../../apps/dal/src/colors';
+import type { Slot } from '../../apps/dal/src/types';
 
 describe('colour assignment (WorkPlan §3.5)', () => {
   it('measures hue distance around the circle', () => {

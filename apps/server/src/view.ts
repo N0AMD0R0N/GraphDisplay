@@ -9,18 +9,13 @@ import {
 } from '@gd/api-contract';
 import type { DalClient } from '@gd/dal-contract';
 import { hashString, QueryError, type Topology } from '@gd/query-core';
-import { layoutGraph, type Point } from './layout';
+import { ERROR_CODES, STUB_ID_PREFIX } from './constants';
+import { layoutGraph } from './layout';
+import type { Point, ViewDeps, ViewIndex } from './types';
 
 /** Graph view: degree ranking, node cap, "+N" stubs, hidden components (WorkPlan C6.1, C7, B5.1). */
 
-interface Index {
-  degree: Map<string, number>;
-  names: Map<string, string>;
-  neighbours: Map<string, Set<string>>;
-  edges: { id: string; from: string; to: string }[];
-}
-
-function indexTopology(t: Topology): Index {
+function indexTopology(t: Topology): ViewIndex {
   const degree = new Map<string, number>();
   const names = new Map<string, string>();
   const neighbours = new Map<string, Set<string>>();
@@ -37,14 +32,14 @@ function indexTopology(t: Topology): Index {
   return { degree, names, neighbours, edges };
 }
 
-const byDegree = (ix: Index) => (a: string, b: string) =>
+const byDegree = (ix: ViewIndex) => (a: string, b: string) =>
   (ix.degree.get(b) ?? 0) - (ix.degree.get(a) ?? 0) || (a < b ? -1 : a > b ? 1 : 0);
 
-function rank(ids: Iterable<string>, ix: Index): string[] {
+function rank(ids: Iterable<string>, ix: ViewIndex): string[] {
   return [...ids].sort(byDegree(ix));
 }
 
-function hiddenComponents(ix: Index, shown: Set<string>): { list: HiddenComponent[]; count: number } {
+function hiddenComponents(ix: ViewIndex, shown: Set<string>): { list: HiddenComponent[]; count: number } {
   const seen = new Set<string>();
   const comps: HiddenComponent[] = [];
   for (const start of rank(ix.degree.keys(), ix)) {
@@ -88,7 +83,7 @@ async function fetchNodes(dal: DalClient, graphId: string, ids: string[]): Promi
 async function assemble(
   dal: DalClient,
   graphId: string,
-  ix: Index,
+  ix: ViewIndex,
   selected: string[],
   positions: Map<string, Point>,
   stubPositions: Map<string, Point>,
@@ -109,7 +104,7 @@ async function assemble(
     if (hidden === 0) continue;
     const parent = positions.get(id)!;
     const p = stubPositions.get(id) ?? { x: parent.x + 150, y: parent.y + 14 };
-    stubs.push({ id: `stub:${id}`, nodeId: id, count: hidden, x: p.x, y: p.y });
+    stubs.push({ id: `${STUB_ID_PREFIX}${id}`, nodeId: id, count: hidden, x: p.x, y: p.y });
   }
   const comps = hiddenComponents(ix, shown);
   return {
@@ -124,12 +119,8 @@ async function assemble(
   };
 }
 
-function stubParentsOf(ix: Index, ids: string[], shown: Set<string>): string[] {
+function stubParentsOf(ix: ViewIndex, ids: string[], shown: Set<string>): string[] {
   return ids.filter((id) => [...(ix.neighbours.get(id) ?? [])].some((w) => !shown.has(w)));
-}
-
-export interface ViewDeps {
-  dal: DalClient;
 }
 
 /** The ranked top-N view (cached through the DAL by view key). */
@@ -180,7 +171,7 @@ export async function expandView(
 ): Promise<GraphView> {
   const topology = await dal.topology(graphId);
   const ix = indexTopology(topology);
-  if (!ix.degree.has(req.nodeId)) throw new QueryError(`Unknown node "${req.nodeId}"`, 'NODE_NOT_FOUND', 404);
+  if (!ix.degree.has(req.nodeId)) throw new QueryError(`Unknown node "${req.nodeId}"`, ERROR_CODES.nodeNotFound, 404);
 
   const visible = req.visible.filter((v) => ix.degree.has(v.id));
   const shown = new Set(visible.map((v) => v.id));

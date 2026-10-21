@@ -21,5 +21,5 @@ COPY apps/client apps/client
 RUN npm run build -w @gd/client
 
 FROM nginx:1.27-alpine
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/client.nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/client/dist /usr/share/nginx/html

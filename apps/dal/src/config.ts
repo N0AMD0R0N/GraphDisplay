@@ -1,13 +1,5 @@
-export interface DalConfig {
-  port: number;
-  neo4jUri: string;
-  neo4jUser: string;
-  neo4jPassword: string;
-  redisUrl: string;
-  cacheTtlSeconds: number;
-  expirySweepIntervalSeconds: number;
-  neo4jTxTimeoutMs: number;
-}
+import { DAL_DEFAULTS, ENV_VARS } from './constants';
+import type { DalConfig } from './types';
 
 const num = (value: string | undefined, fallback: number): number => {
   const n = Number(value);
@@ -16,13 +8,13 @@ const num = (value: string | undefined, fallback: number): number => {
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): DalConfig {
   return {
-    port: num(env.DAL_PORT, 4000),
-    neo4jUri: env.NEO4J_URI ?? 'bolt://127.0.0.1:7687',
-    neo4jUser: env.NEO4J_USER ?? 'neo4j',
-    neo4jPassword: env.NEO4J_PASSWORD ?? 'graphdisplay-dev',
-    redisUrl: env.REDIS_URL ?? 'redis://127.0.0.1:6379',
-    cacheTtlSeconds: num(env.CACHE_TTL_SECONDS, 86_400),
-    expirySweepIntervalSeconds: num(env.EXPIRY_SWEEP_INTERVAL_SECONDS, 300),
-    neo4jTxTimeoutMs: num(env.NEO4J_TX_TIMEOUT_MS, 5000),
+    port: num(env[ENV_VARS.port], DAL_DEFAULTS.port),
+    neo4jUri: env[ENV_VARS.neo4jUri] ?? DAL_DEFAULTS.neo4jUri,
+    neo4jUser: env[ENV_VARS.neo4jUser] ?? DAL_DEFAULTS.neo4jUser,
+    neo4jPassword: env[ENV_VARS.neo4jPassword] ?? DAL_DEFAULTS.neo4jPassword,
+    redisUrl: env[ENV_VARS.redisUrl] ?? DAL_DEFAULTS.redisUrl,
+    cacheTtlSeconds: num(env[ENV_VARS.cacheTtlSeconds], DAL_DEFAULTS.cacheTtlSeconds),
+    expirySweepIntervalSeconds: num(env[ENV_VARS.expirySweepIntervalSeconds], DAL_DEFAULTS.expirySweepIntervalSeconds),
+    neo4jTxTimeoutMs: num(env[ENV_VARS.neo4jTxTimeoutMs], DAL_DEFAULTS.neo4jTxTimeoutMs),
   };
 }

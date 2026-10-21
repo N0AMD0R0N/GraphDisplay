@@ -1,14 +1,11 @@
 import type { Redis } from 'ioredis';
-import { DEFAULTS } from '@gd/api-contract';
+import { DEFAULTS, PALETTE } from '@gd/api-contract';
 import { hashString } from '@gd/query-core';
+import { REDIS_KEYS } from './constants';
 import { Lock } from './locks';
+import type { ColorStore, Slot } from './types';
 
 /** Kind -> colour assignment (WorkPlan §3.5). */
-
-export interface Slot {
-  h: number;
-  l: number;
-}
 
 export const SATURATION = 65;
 export const BASE_LIGHTNESS = 50;
@@ -16,7 +13,7 @@ export const ALT_LIGHTNESS = 34;
 const HUE_STEP = 10;
 const MIN_LIGHTNESS_GAP = 15;
 
-export const UNKNOWN_COLOR = '#9aa0a6';
+export const UNKNOWN_COLOR = PALETTE.unknown;
 /** Known kinds get fixed, well-separated hues. */
 export const FIXED_KINDS: Record<string, Slot> = {
   service: { h: 215, l: BASE_LIGHTNESS },
@@ -68,12 +65,6 @@ export function pickSlot(kind: string, taken: Slot[]): Slot {
   return { h: start, l: ALT_LIGHTNESS };
 }
 
-export interface ColorStore {
-  readAll(): Promise<Record<string, Slot>>;
-  write(kind: string, slot: Slot): Promise<void>;
-  withLock<T>(fn: () => Promise<T>): Promise<T>;
-}
-
 export class MemoryColorStore implements ColorStore {
   private readonly data: Record<string, Slot> = {};
   private chain: Promise<unknown> = Promise.resolve();
@@ -94,14 +85,14 @@ export class MemoryColorStore implements ColorStore {
 export class RedisColorStore implements ColorStore {
   private readonly lock: Lock;
   constructor(private readonly redis: Redis) {
-    this.lock = new Lock(redis, 'lock:colors');
+    this.lock = new Lock(redis, REDIS_KEYS.colorsLock);
   }
   async readAll() {
-    const raw = await this.redis.hgetall('colors:kinds');
+    const raw = await this.redis.hgetall(REDIS_KEYS.colorMap);
     return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, JSON.parse(v) as Slot]));
   }
   async write(kind: string, slot: Slot) {
-    await this.redis.hset('colors:kinds', kind, JSON.stringify(slot));
+    await this.redis.hset(REDIS_KEYS.colorMap, kind, JSON.stringify(slot));
   }
   withLock<T>(fn: () => Promise<T>): Promise<T> {
     return this.lock.withLock(5000, 5000, fn);

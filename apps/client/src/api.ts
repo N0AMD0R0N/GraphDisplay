@@ -10,9 +10,10 @@ import type {
   UploadResponse,
 } from '@gd/api-contract';
 import type { QueryRequest, QueryResult } from '@gd/query-core';
-import { queryString } from './urlState';
+import { queryString } from './lib/urlState';
+import { API_BASE } from './constants';
 
-const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+const BASE = import.meta.env.VITE_API_BASE ?? API_BASE;
 
 export class ApiRequestError extends Error {
   constructor(

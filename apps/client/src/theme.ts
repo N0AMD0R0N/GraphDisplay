@@ -1,24 +1,40 @@
 import { createGlobalStyle, type DefaultTheme } from 'styled-components';
+import { PALETTE } from '@gd/api-contract';
 
 /** Light theme (WorkPlan C10). Components only use these tokens, so a dark theme is a second token set. */
 export const lightTheme: DefaultTheme = {
   colors: {
-    bg: '#f4f6fa',
-    surface: '#ffffff',
-    surface2: '#f1f4f9',
-    border: '#d5dbe5',
-    text: '#1d2433',
-    muted: '#6a7488',
-    accent: '#0891b2', // cyan: pink and red are reserved for vulnerability severity
-    accentSoft: '#e0f7fb',
-    danger: '#c0392b',
-    dangerSoft: '#fdeceb',
-    warning: '#b7791f',
-    edge: '#8c97ab',
+    bg: PALETTE.bg,
+    surface: PALETTE.surface,
+    surface2: PALETTE.surface2,
+    border: PALETTE.border,
+    text: PALETTE.text,
+    muted: PALETTE.muted,
+    accent: PALETTE.accent,
+    accentSoft: PALETTE.accentSoft,
+    danger: PALETTE.danger,
+    dangerSoft: PALETTE.dangerSoft,
+    warning: PALETTE.warning,
+    warningSoft: PALETTE.warningSoft,
+    warningBorder: PALETTE.warningBorder,
+    success: PALETTE.success,
+    successSoft: PALETTE.successSoft,
+    white: PALETTE.white,
+    black: PALETTE.black,
+    frameBorder: PALETTE.frameBorder,
+    hover: PALETTE.hover,
+    edge: PALETTE.edge,
+    canvasDots: PALETTE.canvasDots,
+    unknown: PALETTE.unknown,
+    incomplete: PALETTE.incomplete,
+    nodeRing: PALETTE.nodeRing,
+    swatchRing: PALETTE.swatchRing,
+    pulseStart: PALETTE.pulseStart,
+    pulseEnd: PALETTE.pulseEnd,
     dim: 0.15,
   },
   radius: '8px',
-  shadow: '0 6px 24px rgba(20, 30, 55, 0.16)',
+  shadow: `0 6px 24px ${PALETTE.shadow}`,
 };
 
 export const GlobalStyle = createGlobalStyle`
@@ -33,5 +49,8 @@ export const GlobalStyle = createGlobalStyle`
   button, select, input, textarea { font: inherit; color: inherit; }
   .react-flow__edge.dimmed { opacity: ${(p) => p.theme.colors.dim}; }
   @keyframes gd-progress { 0% { left: -35%; } 100% { left: 100%; } }
-  @keyframes gd-pulse { 0% { box-shadow: 0 0 0 0 rgba(8,145,178,.7); } 100% { box-shadow: 0 0 0 16px rgba(8,145,178,0); } }
+  @keyframes gd-pulse {
+    0% { box-shadow: 0 0 0 0 ${(p) => p.theme.colors.pulseStart}; }
+    100% { box-shadow: 0 0 0 16px ${(p) => p.theme.colors.pulseEnd}; }
+  }
 `;

@@ -227,3 +227,5 @@ export const DEFAULTS = {
   colorMinHueDistance: 30,
 } as const;
 export * from './transport';
+export * from './constants';
+export * from './colors';

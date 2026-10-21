@@ -1,6 +1,7 @@
 import { DEFAULT_CONFIG, discoverSchema, finalizeGraph, parseGraph } from '@gd/graph-core';
 import type { SetTree } from '@gd/query-core';
-import { upstreamOf, upstreamOfEdge, type FlowEdge } from '../../apps/client/src/graph/highlight';
+import { upstreamOf, upstreamOfEdge } from '../../apps/client/src/lib/highlight';
+import type { FlowEdge } from '../../apps/client/src/types';
 import {
   maxSeverityRank,
   NO_VULNERABILITY_COLOR,
@@ -8,9 +9,9 @@ import {
   severityColor,
   severityPosition,
   vulnerabilityColor,
-} from '../../apps/client/src/graph/severity';
-import { DEFAULT_COMBINE, blocksToTree, newBlock, treeToBlocks } from '../../apps/client/src/query/blocks';
-import { buildSearch, parseUrlState, queryString } from '../../apps/client/src/urlState';
+} from '../../apps/client/src/lib/severity';
+import { DEFAULT_COMBINE, blocksToTree, newBlock, treeToBlocks } from '../../apps/client/src/lib/blocks';
+import { buildSearch, parseUrlState, queryString } from '../../apps/client/src/lib/urlState';
 import { fixture } from '../setup/fixtures';
 
 const parsed = parseGraph(fixture('security.json'));

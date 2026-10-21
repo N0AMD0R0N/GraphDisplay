@@ -1,0 +1,47 @@
+# The ingestion service. The cluster starts without a seed graph: upload one from the UI, or set SEED_FILE to a file
+# mounted into the pod (a ConfigMap or a volume).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingest
+  labels: { app.kubernetes.io/name: ingest, app.kubernetes.io/part-of: graphdisplay }
+spec:
+  selector: { app.kubernetes.io/name: ingest }
+  ports:
+    - { name: http, port: 5000, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest
+  labels: { app.kubernetes.io/name: ingest, app.kubernetes.io/part-of: graphdisplay }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: ingest }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: ingest, app.kubernetes.io/part-of: graphdisplay }
+    spec:
+      enableServiceLinks: false # the Services would inject DAL_PORT=tcp://... and shadow the ConfigMap
+      containers:
+        - name: ingest
+          image: graphdisplay-ingest:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 5000 }
+          env:
+            - { name: NODE_ENV, value: production }
+          envFrom:
+            - configMapRef: { name: graphdisplay-config }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /ingest/health, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /ingest/health, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 15

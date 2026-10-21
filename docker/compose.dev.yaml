@@ -3,4 +3,4 @@
 services:
   dal-lb:
     ports:
-      - '127.0.0.1:${DAL_LB_PORT:-4000}:4000'
+      - '127.0.0.1:${DAL_LB_PORT:-4000}:${DAL_PORT:-4000}'

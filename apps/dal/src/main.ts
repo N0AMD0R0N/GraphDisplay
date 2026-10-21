@@ -1,7 +1,9 @@
 import { Redis } from 'ioredis';
+import { ALL_INTERFACES, SHUTDOWN_SIGNALS } from '@gd/api-contract';
 import { Neo4jEngine } from '@gd/engine-neo4j';
 import { createDal } from './app';
 import { loadConfig } from './config';
+import { LOG_PREFIX, NEO4J_STARTUP } from './constants';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -20,18 +22,18 @@ async function main() {
       await engine.init();
       break;
     } catch (e) {
-      if (attempt >= 60) throw e;
-      console.log(`[dal] waiting for Neo4j (${attempt}): ${(e as Error).message}`);
-      await sleep(3000);
+      if (attempt >= NEO4J_STARTUP.attempts) throw e;
+      console.log(`${LOG_PREFIX} waiting for Neo4j (${attempt}): ${(e as Error).message}`);
+      await sleep(NEO4J_STARTUP.delayMs);
     }
   }
 
   const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 2, enableOfflineQueue: false });
-  redis.on('error', (e) => console.warn(`[dal] redis: ${e.message}`));
+  redis.on('error', (e) => console.warn(`${LOG_PREFIX} redis: ${e.message}`));
 
   const dal = createDal({ engine, redis, config, logger: true });
   dal.sweeper.start();
-  await dal.app.listen({ port: config.port, host: '0.0.0.0' });
+  await dal.app.listen({ port: config.port, host: ALL_INTERFACES });
 
   const shutdown = async () => {
     await dal.close();
@@ -39,8 +41,7 @@ async function main() {
     await engine.close();
     process.exit(0);
   };
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  for (const signal of SHUTDOWN_SIGNALS) process.on(signal, shutdown);
 }
 
 main().catch((e) => {

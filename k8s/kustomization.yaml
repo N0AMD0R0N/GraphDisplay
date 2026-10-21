@@ -1,0 +1,20 @@
+# kubectl apply -k k8s        (after building the images, see k8s/README.md)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: graphdisplay
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - neo4j.yaml
+  - redis.yaml
+  - dal.yaml
+  - ingest.yaml
+  - server.yaml
+  - client.yaml
+  - ingress.yaml
+# Point the images at your registry:
+# images:
+#   - name: graphdisplay-dal
+#     newName: registry.example.com/graphdisplay/dal
+#     newTag: '1.0.0'

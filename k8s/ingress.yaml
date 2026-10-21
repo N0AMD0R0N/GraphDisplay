@@ -1,0 +1,21 @@
+# Optional entry point. Without an Ingress controller, use `kubectl port-forward service/client 8080:80`.
+# The host is a placeholder: set it in your overlay.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: graphdisplay
+  annotations:
+    # the nginx ingress controller: uploads are large and queries travel in the URL
+    nginx.ingress.kubernetes.io/proxy-body-size: 64m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '120'
+spec:
+  rules:
+    - host: graphdisplay.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: client
+                port: { name: http }

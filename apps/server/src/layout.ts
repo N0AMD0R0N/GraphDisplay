@@ -1,26 +1,6 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
-
-export const NODE_W = 120;
-export const NODE_H = 56;
-export const STUB_W = 56;
-export const STUB_H = 28;
-
-export interface LayoutInput {
-  nodeIds: string[];
-  edges: { id: string; from: string; to: string }[];
-  /** Nodes that get a "+N" stub; laid out next to their node. */
-  stubParents: string[];
-}
-
-export interface Point {
-  x: number;
-  y: number;
-}
-
-export interface LayoutResult {
-  nodes: Record<string, Point>;
-  stubs: Record<string, Point>;
-}
+import { LAYOUT_BOX, STUB_ID_PREFIX } from './constants';
+import type { LayoutInput, LayoutResult } from './types';
 
 const elk = new ELK();
 
@@ -39,20 +19,24 @@ export async function layoutGraph(input: LayoutInput): Promise<LayoutResult> {
       'elk.separateConnectedComponents': 'true',
     },
     children: [
-      ...input.nodeIds.map((id) => ({ id, width: NODE_W, height: NODE_H })),
-      ...input.stubParents.map((id) => ({ id: `stub:${id}`, width: STUB_W, height: STUB_H })),
+      ...input.nodeIds.map((id) => ({ id, width: LAYOUT_BOX.node.width, height: LAYOUT_BOX.node.height })),
+      ...input.stubParents.map((id) => ({
+        id: `${STUB_ID_PREFIX}${id}`,
+        width: LAYOUT_BOX.stub.width,
+        height: LAYOUT_BOX.stub.height,
+      })),
     ],
     edges: [
       ...input.edges
         .filter((e) => ids.has(e.from) && ids.has(e.to))
         .map((e) => ({ id: e.id, sources: [e.from], targets: [e.to] })),
-      ...input.stubParents.map((id) => ({ id: `stub-edge:${id}`, sources: [id], targets: [`stub:${id}`] })),
+      ...input.stubParents.map((id) => ({ id: `stub-edge:${id}`, sources: [id], targets: [`${STUB_ID_PREFIX}${id}`] })),
     ],
   });
   const result: LayoutResult = { nodes: {}, stubs: {} };
   for (const child of graph.children ?? []) {
     const p = { x: Math.round(child.x ?? 0), y: Math.round(child.y ?? 0) };
-    if (child.id.startsWith('stub:')) result.stubs[child.id.slice(5)] = p;
+    if (child.id.startsWith(STUB_ID_PREFIX)) result.stubs[child.id.slice(STUB_ID_PREFIX.length)] = p;
     else result.nodes[child.id] = p;
   }
   return result;
