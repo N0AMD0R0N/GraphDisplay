@@ -33,7 +33,7 @@ Result shape
 
 Input lifecycle
 - input is loaded via api, processed graphs should be stored in a cache structure such that switching between graphs will be quick if necessary (cache life-time is configurable, defaulting to 1 day) - for the purpose of this project, the npm "start" script will use the example json as the only json loaded
-- graphs are to be validated upon post, missing nodes and edges are a special case - these are "incomplete" but can still be shown in the graph deriving the data about them from the other elements of the graph that reference them - if data is in an invalid format return a 401 error, if data is missing but can be derived/processed return a 207 response with 
+- graphs are to be validated upon post, missing nodes and edges are a special case - these are "incomplete" but can still be shown in the graph deriving the data about them from the other elements of the graph that reference them - if data is in an invalid format return a 401 error, if data is missing but can be derived/processed return a 207 response with 422 error and an appropriate message.
 
 Performance targets
 - "Standard" will refer to query of up to 20 conditions, "heavy" query will refer to query with up to 70 conditions
