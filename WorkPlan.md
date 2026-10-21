@@ -522,7 +522,7 @@ The server computes the full-graph layout on the first view request and caches i
 | nginx config | `docker/client.nginx.conf.template` | Static file serving with SPA fallback; `location /api/ → http://${SERVER_HOST}:${API_PORT}/` (filled from the environment at start) |
 | Kubernetes | `k8s/` (Kustomize) | The same services as the compose file; addresses and ports in `k8s/configmap.yaml`, the variables of `.env.example` (see `k8s/README.md`) |
 | Volumes | `neo4j-data`, `neo4j-logs` | Neo4j persistence (E4). Redis has no volume. |
-| Bind mount | `./train-ticket-be.json → /seed/graph.json:ro` (ingest container) | Seed input for the ingestion service (A11) |
+| Seed override | `docker/compose.seed.yaml`: `${SEED_GRAPH} → /seed/graph.json:ro` (ingest container) + `SEED_FILE`, `SEED_NAME`, `SEED_PIN` | Optional seed input for the ingestion service (A11); `npm start` uses it with the example graph |
 | Network | `graphdisplay` (bridge) | Internal service-to-service traffic. Only the ports in E2 are published, on `127.0.0.1`. |
 | Environment | `.env` (git-ignored) from `.env.example` | Credentials and limits (A10), shared by compose and `npm run dev` |
 | Ignore file | `.dockerignore` | Excludes `node_modules`, `reports/`, `.git`, local env files |

@@ -2,7 +2,8 @@
 # Every service address and port comes from the environment (see .env.example): the *_HOST variables name the
 # services on the compose network, *_PORT the port a service listens on inside it, and the published (host) ports are
 # CLIENT_PORT, SERVER_PORT, NEO4J_HTTP_PORT, NEO4J_BOLT_PORT and REDIS_PORT. The same variables are in k8s/configmap.yaml.
-# Usage: npm start   (docker compose -f docker/compose.yaml up --build)
+# Usage: npm run start:empty (docker compose -f docker/compose.yaml up --build). It starts empty; to seed a graph add
+# docker/compose.seed.yaml (npm start does that with the example graph).
 name: graphdisplay
 
 x-node-env: &node-env
@@ -98,13 +99,8 @@ services:
       <<: *node-env
       INGEST_PORT: ${INGEST_PORT:-5000}
       DAL_URL: http://${DAL_LB_HOST:-dal-lb}:${DAL_PORT:-4000}
-      SEED_FILE: /seed/graph.json
-      SEED_NAME: ${SEED_NAME:-train-ticket-be}
-      SEED_PIN: ${SEED_PIN:-true}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
       SINK_KINDS: ${SINK_KINDS:-rds,sqs}
-    volumes:
-      - ../train-ticket-be.json:/seed/graph.json:ro
     depends_on:
       dal-lb: { condition: service_healthy }
     healthcheck:

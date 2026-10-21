@@ -5,12 +5,15 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@fastify/swagger": "^9.9.2",
+    "@fastify/swagger-ui": "^5.2.6",
     "@gd/api-contract": "*",
-    "@gd/query-core": "*",
     "@gd/dal-contract": "*",
     "@gd/engine-neo4j": "*",
+    "@gd/query-core": "*",
     "fastify": "^5.12.7",
     "ioredis": "^6.0.0",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "yaml": "^2.9.1"
   }
 }

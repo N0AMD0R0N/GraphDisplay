@@ -12,10 +12,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "docker compose -f docker/compose.yaml up --build",
-    "start:detached": "docker compose -f docker/compose.yaml up --build -d",
+    "start": "node tools/example.mjs start",
+    "start:detached": "node tools/example.mjs start -d",
+    "start:empty": "docker compose -f docker/compose.yaml up --build",
     "stop": "docker compose -f docker/compose.yaml down",
     "dev": "node tools/dev.mjs",
+    "dev:example": "node tools/example.mjs dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

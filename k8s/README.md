@@ -4,14 +4,9 @@ Kustomize manifests for the same services as `docker/compose.yaml`: Neo4j (State
 (2 replicas behind its Service, which replaces the compose `dal-lb`), the ingestion service, the API server (2 replicas)
 and the web client (nginx), plus an optional Ingress.
 
-```sh
-docker compose -f docker/compose.yaml build        # builds graphdisplay-{dal,ingest,server,client}
-# local cluster (kind / minikube): load the images, e.g. kind load docker-image graphdisplay-dal ...
-kubectl apply -k k8s
-kubectl -n graphdisplay port-forward service/client 8080:80   # http://127.0.0.1:8080
-```
+These manifests are generic: they contain no seed graph, local address or local port. For a working example on Docker Desktop run `./deploy-example.sh` from the repository root. It builds the images and adds an overlay with the example graph as the seed, then opens the UI on http://127.0.0.1:8090; stopping it (Ctrl+C) removes everything it created. See the root README, section *Kubernetes*.
 
-For a real cluster push the images to a registry and set `images:` in `kustomization.yaml`.
+For your own deployment, write an overlay with `resources: [<path to k8s>]` that sets your images (`images:`), secrets, access (Ingress host) and optionally a seed graph (`SEED_FILE`, `SEED_NAME`, `SEED_PIN` on the ingest Deployment).
 
 ## Addresses and ports
 
@@ -21,4 +16,4 @@ Nothing the applications read is hard-coded in the Deployments: every service ad
 
 - `secret.yaml` holds the development Neo4j password; replace it before deploying outside a local cluster.
 - Neo4j Community Edition cannot be clustered, so it stays at one replica.
-- No graph is seeded. Upload one from the UI, or set `SEED_FILE` on the ingest Deployment to a mounted file.
+- Without a seed the app starts empty; graphs are uploaded from the UI or with `POST /graphs`.

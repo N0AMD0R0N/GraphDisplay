@@ -1,0 +1,12 @@
+# Optional override: seeds a graph when the ingestion service starts.
+#   SEED_GRAPH=/abs/path/graph.json docker compose -f docker/compose.yaml -f docker/compose.seed.yaml up --build
+# SEED_GRAPH is the JSON file on the host (absolute, or relative to this docker/ folder). SEED_NAME names the graph
+# (default: "graph", the name of the mounted file); seeded graphs are pinned unless SEED_PIN=false.
+services:
+  ingest:
+    environment:
+      SEED_FILE: /seed/graph.json
+      SEED_NAME: ${SEED_NAME:-}
+      SEED_PIN: ${SEED_PIN:-true}
+    volumes:
+      - ${SEED_GRAPH:?set SEED_GRAPH to the JSON file to seed}:/seed/graph.json:ro

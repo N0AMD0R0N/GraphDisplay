@@ -10,9 +10,6 @@ export const COMPOSE_FILES = ['docker/compose.yaml', 'docker/compose.dev.yaml'];
 /** The data tier runs in Docker during `npm run dev`; the other services run locally. */
 export const DOCKER_SERVICES = ['neo4j', 'redis', 'dal', 'dal-lb'];
 
-export const SEED_FILE = 'train-ticket-be.json';
-export const DEFAULT_SEED_NAME = 'train-ticket-be';
-
 export const SHUTDOWN_SIGNALS = ['SIGINT', 'SIGTERM'];
 
 export const httpUrl = (host, port) => `http://${host}:${port}`;

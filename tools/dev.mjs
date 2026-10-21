@@ -7,10 +7,8 @@ import {
   CHILD_STOP_SIGNAL,
   COMPOSE_FILES,
   DEFAULT_PORTS,
-  DEFAULT_SEED_NAME,
   DOCKER_SERVICES,
   LOCALHOST,
-  SEED_FILE,
   SHUTDOWN_SIGNALS,
   httpUrl,
 } from './constants.mjs';
@@ -55,9 +53,9 @@ const dalUrl = httpUrl(LOCALHOST, port.dal);
 start('ingest', 'npx', ['tsx', 'watch', 'apps/ingest/src/main.ts'], {
   INGEST_PORT: port.ingest,
   DAL_URL: dalUrl,
-  SEED_FILE: resolve(root, SEED_FILE),
-  SEED_NAME: env.SEED_NAME ?? DEFAULT_SEED_NAME,
-  SEED_PIN: 'true',
+  // seeding is optional: SEED_FILE (a JSON file), SEED_NAME, SEED_PIN (npm run dev:example sets them)
+  SEED_FILE: env.SEED_FILE ? resolve(env.SEED_FILE) : '',
+  SEED_PIN: env.SEED_PIN ?? 'true',
 });
 start('server', 'npx', ['tsx', 'watch', 'apps/server/src/main.ts'], {
   PORT: port.server,

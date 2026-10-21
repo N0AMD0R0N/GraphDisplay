@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# Example deployment: runs Graph Display on the Kubernetes cluster of Docker Desktop, seeded with the example graph,
+# and opens it on a local port. It runs until it is stopped (Ctrl+C, or a TERM signal); it then removes everything it
+# created: the Kubernetes resources (namespace, workloads, the Neo4j volume), the images it built and the overlay.
+# A failed run cleans up the same way.
+#
+# Everything that belongs to this example lives here, not in the app or in k8s/: the example JSON file, the name it
+# is stored under, the local address and port, the cluster context. The manifests in k8s/ stay generic; this script
+# layers an overlay on top of them (written to .deploy-example/, which git ignores). To write your own deployment,
+# start from k8s/ and set your own values the same way.
+#
+# Usage:   ./deploy-example.sh
+# Options (environment variables):
+#   EXAMPLE_GRAPH       JSON file to seed                  (default: train-ticket-be.json)
+#   EXAMPLE_GRAPH_NAME  name the graph is stored under     (default: the file name without .json)
+#   LOCAL_ADDRESS       local address of the UI            (default: 127.0.0.1)
+#   LOCAL_PORT          local port of the UI               (default: 8090; docker compose uses 8080)
+#   KUBE_CONTEXT        kubectl context to deploy to       (default: docker-desktop)
+#   NAMESPACE           namespace                          (default: graphdisplay)
+#   SKIP_BUILD=1        reuse the images already built (they are then kept on exit)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+EXAMPLE_GRAPH="${EXAMPLE_GRAPH:-train-ticket-be.json}"
+EXAMPLE_GRAPH_NAME="${EXAMPLE_GRAPH_NAME:-$(basename "$EXAMPLE_GRAPH" .json)}"
+LOCAL_ADDRESS="${LOCAL_ADDRESS:-127.0.0.1}"
+LOCAL_PORT="${LOCAL_PORT:-8090}"
+KUBE_CONTEXT="${KUBE_CONTEXT:-docker-desktop}"
+NAMESPACE="${NAMESPACE:-graphdisplay}"
+OVERLAY_DIR=".deploy-example"
+IMAGES=(dal ingest server client)
+CONFIGMAP_LIMIT_BYTES=1000000 # a ConfigMap holds at most 1 MiB
+
+log() { printf '\n> %s\n' "$*"; }
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+kc() { kubectl --context "$KUBE_CONTEXT" "$@"; }
+
+# ---------------------------------------------------------------- checks
+command -v docker >/dev/null || fail 'docker is not installed'
+command -v kubectl >/dev/null || fail 'kubectl is not installed'
+command -v curl >/dev/null || fail 'curl is not installed'
+docker info >/dev/null 2>&1 || fail 'Docker is not running'
+kubectl config get-contexts "$KUBE_CONTEXT" >/dev/null 2>&1 ||
+  fail "no kubectl context \"$KUBE_CONTEXT\" (Docker Desktop: Settings > Kubernetes > Enable Kubernetes)"
+kc cluster-info >/dev/null 2>&1 || fail "the cluster of context \"$KUBE_CONTEXT\" is not reachable"
+[ -f "$EXAMPLE_GRAPH" ] || fail "example graph not found: $EXAMPLE_GRAPH"
+size=$(wc -c <"$EXAMPLE_GRAPH")
+[ "$size" -le "$CONFIGMAP_LIMIT_BYTES" ] ||
+  fail "$EXAMPLE_GRAPH is $size bytes; a ConfigMap holds at most 1 MiB (upload larger graphs from the UI instead)"
+
+# ---------------------------------------------------------------- shutdown
+# Whatever ends the script (Ctrl+C, TERM, an error) runs cleanup once, on EXIT.
+BUILT_IMAGES=()
+DEPLOYED=0
+FORWARD_PID=""
+
+stop_forward() {
+  [ -n "$FORWARD_PID" ] || return 0
+  # Git Bash: kubectl.exe is a native Windows process, so stop it through its Windows pid as well
+  if [ -r "/proc/$FORWARD_PID/winpid" ]; then
+    taskkill //PID "$(cat "/proc/$FORWARD_PID/winpid")" //T //F >/dev/null 2>&1 || true
+  fi
+  kill "$FORWARD_PID" 2>/dev/null || true
+  wait "$FORWARD_PID" 2>/dev/null || true
+  FORWARD_PID=""
+}
+
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  set +e
+  stop_forward
+  if [ "$DEPLOYED" = 1 ]; then
+    log "removing the Kubernetes resources (namespace $NAMESPACE)"
+    kc delete -k "$OVERLAY_DIR" --ignore-not-found --wait=true >/dev/null
+    kc wait --for=delete "namespace/$NAMESPACE" --timeout=300s >/dev/null 2>&1
+  fi
+  if [ "${#BUILT_IMAGES[@]}" -gt 0 ]; then
+    log "removing the images: ${BUILT_IMAGES[*]}"
+    docker rmi "${BUILT_IMAGES[@]}" >/dev/null 2>&1
+  fi
+  rm -rf "$OVERLAY_DIR"
+  log 'stopped and cleaned up'
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# ---------------------------------------------------------------- images
+# Docker Desktop's cluster runs the images of the local Docker engine, so no registry is needed.
+if [ "${SKIP_BUILD:-}" != 1 ]; then
+  for image in "${IMAGES[@]}"; do
+    log "building graphdisplay-$image"
+    BUILT_IMAGES+=("graphdisplay-$image:latest")
+    docker build -q -f "docker/$image.Dockerfile" -t "graphdisplay-$image:latest" . >/dev/null
+  done
+fi
+
+# ---------------------------------------------------------------- overlay with the example's values
+log "writing the example overlay to $OVERLAY_DIR/"
+rm -rf "$OVERLAY_DIR"
+mkdir -p "$OVERLAY_DIR"
+cp "$EXAMPLE_GRAPH" "$OVERLAY_DIR/graph.json"
+cat >"$OVERLAY_DIR/kustomization.yaml" <<EOF
+# Generated by deploy-example.sh: the generic manifests of k8s/ plus the example graph as the seed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: $NAMESPACE
+resources:
+  - ../k8s
+configMapGenerator:
+  - name: graphdisplay-seed
+    files:
+      - graph.json
+patches:
+  - path: ingest-seed.yaml
+EOF
+cat >"$OVERLAY_DIR/ingest-seed.yaml" <<EOF
+# The ingestion service seeds the mounted example graph when it starts (pinned, so it never expires).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest
+spec:
+  template:
+    spec:
+      containers:
+        - name: ingest
+          env:
+            - { name: SEED_FILE, value: /seed/graph.json }
+            - { name: SEED_NAME, value: "$EXAMPLE_GRAPH_NAME" }
+            - { name: SEED_PIN, value: "true" }
+          volumeMounts:
+            - { name: seed, mountPath: /seed, readOnly: true }
+      volumes:
+        - name: seed
+          configMap: { name: graphdisplay-seed }
+EOF
+
+# ---------------------------------------------------------------- deploy
+log "applying to context $KUBE_CONTEXT, namespace $NAMESPACE"
+DEPLOYED=1
+kc apply -k "$OVERLAY_DIR"
+# images are tagged :latest, so restart to pick up a rebuild
+if [ "${SKIP_BUILD:-}" != 1 ]; then
+  kc -n "$NAMESPACE" rollout restart deployment/dal deployment/ingest deployment/server deployment/client >/dev/null
+fi
+
+log 'waiting for the services to become ready'
+kc -n "$NAMESPACE" rollout status statefulset/neo4j --timeout=300s
+for deployment in redis dal ingest server client; do
+  kc -n "$NAMESPACE" rollout status "deployment/$deployment" --timeout=300s
+done
+
+# ---------------------------------------------------------------- local access
+URL="http://$LOCAL_ADDRESS:$LOCAL_PORT"
+start_forward() {
+  kc -n "$NAMESPACE" port-forward --address "$LOCAL_ADDRESS" service/client "$LOCAL_PORT:80" >/dev/null 2>&1 &
+  FORWARD_PID=$!
+}
+log "forwarding $URL to the client"
+start_forward
+
+# ready when the UI answers and the ingestion service has stored the seed (a graph with the same content that is
+# already stored is kept as it is: graphs are identified by a hash of their content)
+ready=0
+for _ in $(seq 1 60); do
+  if curl -fs "$URL/api/health" 2>/dev/null | grep -q '"status":"ok"' &&
+    kc -n "$NAMESPACE" logs deployment/ingest 2>/dev/null | grep -q 'seeded /seed/graph.json: HTTP 20'; then
+    ready=1
+    break
+  fi
+  sleep 2
+done
+[ "$ready" = 1 ] ||
+  fail "the example graph did not show up at $URL (see: kubectl --context $KUBE_CONTEXT -n $NAMESPACE logs deployment/ingest)"
+
+log "ready: $URL  (the example graph is seeded). Press Ctrl+C to stop and remove everything."
+
+# keep running; a port forward ends when its pod restarts, so start it again
+while :; do
+  if ! kill -0 "$FORWARD_PID" 2>/dev/null; then
+    log 'the port forward ended; starting it again'
+    start_forward
+  fi
+  sleep 2
+done
