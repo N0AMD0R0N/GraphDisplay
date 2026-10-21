@@ -1,14 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type {
-  ApiError,
-  ExpandRequest,
-  GraphEdge,
-  GraphNode,
-  GraphSchema,
-  GraphSummary,
-  GraphView,
-  UploadResponse,
-} from '@gd/api-contract';
+import type { ApiError, ExpandRequest, GraphSchema, GraphSummary, GraphView, UploadResponse } from '@gd/api-contract';
 import type { QueryRequest, QueryResult } from '@gd/query-core';
 import { queryString } from './lib/urlState';
 import { API_BASE } from './constants';
@@ -45,22 +36,6 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return { status: res.status, data: data as T };
 }
 
-/** Ids per request: they travel in the URL. */
-const IDS_PER_REQUEST = 150;
-
-/** Fetches nodes or edges by id, in chunks that run in parallel. */
-async function byIds<T>(path: string, ids: string[]): Promise<T[]> {
-  const chunks: string[][] = [];
-  for (let i = 0; i < ids.length; i += IDS_PER_REQUEST) chunks.push(ids.slice(i, i + IDS_PER_REQUEST));
-  const parts = await Promise.all(
-    chunks.map(async (chunk) => {
-      const query = chunk.map((id) => `id=${encodeURIComponent(id)}`).join('&');
-      return (await request<T[]>('GET', `${path}?${query}`)).data;
-    }),
-  );
-  return parts.flat();
-}
-
 export const api = {
   graphs: async () => (await request<GraphSummary[]>('GET', '/graphs')).data,
   schema: async (id: string) => (await request<GraphSchema>('GET', `/graphs/${id}/schema`)).data,
@@ -75,8 +50,6 @@ export const api = {
     (await request<GraphView>('POST', `/graphs/${id}/view/expand`, body)).data,
   query: async (id: string, body: QueryRequest) =>
     (await request<QueryResult>('GET', `/graphs/${id}/routes/query?${queryString(body)}`)).data,
-  nodes: (id: string, ids: string[]) => byIds<GraphNode>(`/graphs/${id}/nodes`, ids),
-  edges: (id: string, ids: string[]) => byIds<GraphEdge>(`/graphs/${id}/edges`, ids),
   upload: async (text: string, name?: string) => {
     const res = await request<UploadResponse>(
       'POST',

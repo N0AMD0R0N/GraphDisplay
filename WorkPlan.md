@@ -200,11 +200,13 @@ Computed by the ingestion service (§3.3 step 5) and stored on every node. Deriv
 
 ### 3.2 Result payload (Proposed, revised)
 
-A query returns the **routes only**: lists of node and edge ids, plus how complete the list is. The nodes and edges themselves are not part of it, so external services receive just the routes; whoever needs their properties asks for them by id (`GET /graphs/:id/nodes?id=…`, `GET /graphs/:id/edges?id=…`, at most 1,000 ids per request, repeat the `id` parameter). The UI draws a route from its ids and fetches the node details (names, kinds, vulnerabilities) once per result, in chunks.
+A query result is **self-contained**: the routes (lists of node and edge ids), how complete the list is, and every node and edge on those routes once, with all their properties, so a client can draw it without further calls. (An earlier version returned the routes only and had the client fetch the nodes by id; it was changed because the result has to be easy to render.) Nodes and edges can still be read on their own: all of a graph, or by id (`GET /graphs/:id/nodes?id=…`, `GET /graphs/:id/edges?id=…`, at most 1,000 ids per request).
 
 ```ts
 interface QueryResult {
   routes: Route[];                       // sorted per A4.3, no route inside another unless includeSubRoutes (A4.8)
+  nodes: GraphNode[];                    // every node on the routes, once, with all its properties
+  edges: GraphEdge[];                    // every edge on the routes, once
   total: number | null;                  // null when unknown due to truncation
   truncated: boolean;
   warnings: Warning[];

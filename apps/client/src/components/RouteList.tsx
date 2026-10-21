@@ -71,7 +71,7 @@ const Row = styled.button<{ $active: boolean }>`
 export function RouteList() {
   const { graphId, result, selected, selectRoute, setRouteListOpen } = useUI();
   const schema = useSchema(graphId).data;
-  // properties of the nodes (names, kinds, vulnerabilities) are fetched separately from the routes
+  // the properties of the nodes (names, kinds, vulnerabilities) come with the result
   const nodes = useRouteNodes();
   const scroller = useRef<HTMLDivElement>(null);
   const routes = result?.routes ?? [];

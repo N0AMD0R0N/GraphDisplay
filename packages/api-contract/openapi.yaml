@@ -103,8 +103,8 @@ paths:
       operationId: getNodes
       summary: The nodes of a graph, all or by id (all their original properties)
       description: >
-        Without `id`, every node of the graph. The routes returned by a query list node ids only: with `id`
-        (repeated, at most 1000 per request) only those nodes are returned. Unknown ids are left out; the others are
+        Without `id`, every node of the graph. With `id` (repeated, at most 1000 per request) only those nodes are
+        returned. Unknown ids are left out; the others are
         returned in the order requested.
       parameters:
         - {
@@ -643,9 +643,27 @@ components:
         closesTo: { type: string, description: Node of the route that the last node points back to (cycle marker) }
     QueryResult:
       type: object
-      required: [routes, total, truncated, warnings]
+      description: >
+        Self-contained: the routes list node and edge ids, and `nodes` / `edges` hold every node and edge on those
+        routes once, with all their original properties, so the result can be drawn without further calls.
+      required: [routes, nodes, edges, total, truncated, warnings]
       properties:
         routes: { type: array, items: { $ref: '#/components/schemas/Route' } }
+        nodes:
+          {
+            type: array,
+            description: Every node on the returned routes,
+            once,
+            items: { $ref: '#/components/schemas/GraphNode' },
+          }
+        edges:
+          {
+            type: array,
+            description: Every edge on the returned routes,
+            once (normalised,
+            one object per edge),
+            items: { $ref: '#/components/schemas/GraphEdge' },
+          }
         total: { type: integer, nullable: true, description: null when the result was truncated }
         truncated: { type: boolean }
         warnings: { type: array, items: { $ref: '#/components/schemas/Warning' } }

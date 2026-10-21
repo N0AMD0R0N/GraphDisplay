@@ -98,5 +98,12 @@ export async function runQuery(deps: QueryDeps, graphId: string, body: unknown):
   }
 
   const routes = rows.map(toRoute);
-  return { routes, total: truncated ? null : routes.length, truncated, warnings };
+  // the nodes and edges of the routes, once each, so the result can be drawn as it is
+  const nodeIds = [...new Set(routes.flatMap((r) => r.nodeIds))];
+  const edgeIds = [...new Set(routes.flatMap((r) => r.edgeIds))];
+  const { nodes, edges } =
+    nodeIds.length > 0
+      ? await deps.dal.entities(graphId, { nodeIds, edgeIds }).catch(asQueryError)
+      : { nodes: [], edges: [] };
+  return { routes, nodes, edges, total: truncated ? null : routes.length, truncated, warnings };
 }

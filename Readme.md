@@ -4,6 +4,12 @@ A system graph explorer. It ingests a JSON description of a software system (ser
 
 Routes are directed simple paths (no node twice). Queries are written either in a **query builder** (generated from the graph's own properties) or in **Cypher**. Example: _"routes that start in a public service, pass a high-severity vulnerability and end in a datastore"_.
 
+## Decisions and assumptions
+
+**Decisions.** Routes are path questions, so the graph is stored in **Neo4j** and queried with Cypher; the workload is read-heavy, so derived properties (sink, degree, vulnerability counts) are computed once at upload and results are cached in Redis. The backend is split into an API server, an ingestion service and a data-access layer, the only part that touches Neo4j and Redis; it is stateless, so it runs as load-balanced replicas. All three are TypeScript, share their types, and describe their contracts in OpenAPI. Filtering is generic by design. A query is a tree of union, intersection and difference over leaves, and a leaf is either a list of builder conditions or read-only Cypher. A condition is a position (first, last, any, every or no node of the route), a property, an operator and a value, and the builder offers the properties found in the uploaded graph. Adding a filter is therefore a new condition, not new code. The three filters of the exercise are such conditions: `first publicExposed = true`, `last _isSink = true` and `any vulnerabilities._count > 0`. The query travels in the URL (`GET /graphs/{graphId}/routes/query?q=…`), so it can be bookmarked and shared. The result is self-contained: the routes plus every node and edge on them, ready to render. A hop limit, a route limit and a query timeout (504) keep broad queries from running away.
+
+**Assumptions.** A route is a directed simple path with at least one node. A call back into the route ends it and is shown as a cycle marker instead of repeating the node. A route that lies inside a longer returned route is left out unless `includeSubRoutes=true`. "Sink (rds/sql)" is read as the kinds that actually occur in the data, `rds` and `sqs`; the list is configurable (`SINK_KINDS`). A missing property is not the same as `false` (`exists` / `notExists` test for it). Node names are unique after trimming and lower-casing. A node that is referenced but not defined becomes an *incomplete* placeholder: the upload succeeds with 207. Input that cannot be read is rejected with 401. The sample file has quirks that the results reflect. `gateway-service` is public but has no edges, and four services are isolated. So "starts in a public service" in practice starts at `frontend`, and no route on the sample satisfies all three filters at once (this was checked independently). Graphs expire after a day unless pinned; the seeded example is pinned.
+
 ## Requirements
 
 - **Docker Desktop** (Docker Engine with Compose v2), with about 4 GB of memory for the containers
@@ -170,7 +176,7 @@ curl -G "http://127.0.0.1:8080/api/graphs/<graphId>/routes/query" \
   --data-urlencode "q=$Q" --data-urlencode "limit=1000" --data-urlencode "maxHops=50" --data-urlencode "routeMode=all"
 ```
 
-Raw Cypher must be read-only, scoped with `{graphId: $g}`, and return one path or node variable. The query returns **the routes only**: `{ routes, total, truncated, warnings }`. A route lists the ids of its nodes and edges, longest first. By default a route that lies inside another returned route (the same nodes in the same order) is left out, so no route is part of another; add `includeSubRoutes=true` to get them too. The properties of nodes and edges are fetched separately by id, at most 1,000 per request: `GET /graphs/<graphId>/nodes?id=frontend&id=order-service` and `GET /graphs/<graphId>/edges?id=order-service->prod-postgresdb`.
+Raw Cypher must be read-only, scoped with `{graphId: $g}`, and return one path or node variable. The result is **self-contained**: `{ routes, nodes, edges, total, truncated, warnings }`. A route lists the ids of its nodes and edges, longest first; `nodes` and `edges` hold every node and edge on the returned routes once, with all their original properties, so a client can draw the result without further calls. By default a route that lies inside another returned route (the same nodes in the same order) is left out, so no route is part of another; add `includeSubRoutes=true` to get them too. Nodes and edges can also be read on their own: all of them (`GET /graphs/<graphId>/nodes`, `/edges`) or by id, at most 1,000 per request (`?id=frontend&id=order-service`, `?id=order-service->prod-postgresdb`).
 
 ## Architecture
 
@@ -221,7 +227,7 @@ Each step is one commit (`stepN - …`); there is no step 7.
 | Step | What was done |
 |---|---|
 | 1 | added a base plan document, interpreting the project requirement and elaborating on edge cases |
-| 2 | utilize Opus 5.5 to analyze both the plan and the JSON document for gaps in planning. |
+| 2 | utilize Opus 5.5 to analyze both the plan and the JSON document for gaps in planning |
 | 3 | expand options for implementations and establish a detailed workplan |
 | 4 | implementation via Sonnet |
 | 5 | high-level fixes and UI changes (query mirrored in the address bar, node/edge highlighting, vulnerability markers, GET query endpoint returning routes only) |
@@ -229,3 +235,4 @@ Each step is one commit (`stepN - …`); there is no step 7.
 | 8 | deployment for examples and finishing touches (`deploy-example.sh` with the example graph as seed and full cleanup on exit; Compose and development take the seed from the environment; README with requirements and usage) |
 | 9 | api and e2e test and fixes (every service serves its OpenAPI document with Swagger UI; contract tests in both directions; a reachability test for every documented operation, also against a running deployment; the address bar uses the API's routes; deploy script readiness fix) |
 | 10 | api routing fixes and openapi documentation (on the UI's port every API path also answers at the root, a browser page load of a UI address gets the UI; `/nodes` and `/edges` without ids return the whole graph; `GET /links` answers the reserved 501; unknown operations answer `ROUTE_NOT_FOUND`; the graph path parameter is `graphId` so Swagger UI shows every parameter; tests for all of it) |
+| 11 | decisions and assumptions and self-contained query results (README section on decisions and assumptions; a route query returns the nodes and edges of its routes, so one call is enough to render it) |

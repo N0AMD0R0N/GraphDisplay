@@ -292,7 +292,7 @@ describe('route queries: other rules and modes', () => {
     expect(exact.body).toMatchObject({ truncated: false, total: 30 });
   });
 
-  it('returns the routes only: ordered node and edge ids, without the nodes and edges themselves', async () => {
+  it('returns the routes (ordered node and edge ids) with the nodes and edges they pass through', async () => {
     const res = await run(
       security,
       leaf(rule('first', 'name', 'eq', 'web'), rule('last', 'name', 'eq', 'ledger-db'), {
@@ -301,8 +301,10 @@ describe('route queries: other rules and modes', () => {
         max: 4,
       }),
     );
-    // external services get the list of routes and how complete it is: nothing else
-    expect(Object.keys(res.body).sort()).toEqual(['routes', 'total', 'truncated', 'warnings']);
+    // the routes, how complete the list is, and the nodes and edges needed to draw them
+    expect(Object.keys(res.body).sort()).toEqual(['edges', 'nodes', 'routes', 'total', 'truncated', 'warnings']);
+    expect(res.body.nodes.map((n: Json) => n.id).sort()).toEqual(['api', 'billing', 'ledger-db', 'web']);
+    expect(res.body.edges.map((e: Json) => e.id).sort()).toEqual(['api->billing', 'billing->ledger-db', 'web->api']);
     expect(res.body.routes).toHaveLength(1);
     const route = res.body.routes[0];
     expect(route).toEqual({
@@ -313,7 +315,7 @@ describe('route queries: other rules and modes', () => {
     });
   });
 
-  it('the nodes and edges of a route are fetched separately, by the ids the route lists', async () => {
+  it('the nodes and edges of a route can also be fetched by the ids the route lists', async () => {
     const res = await run(
       security,
       leaf(rule('first', 'name', 'eq', 'web'), rule('last', 'name', 'eq', 'ledger-db'), {
@@ -342,6 +344,40 @@ describe('route queries: other rules and modes', () => {
       { id: 'api->billing', from: 'api', to: 'billing' },
       { id: 'billing->ledger-db', from: 'billing', to: 'ledger-db' },
     ]);
+  });
+});
+
+describe('a query result is self-contained', () => {
+  const entitiesOf = (body: Json) => ({
+    nodeIds: [...new Set(body.routes.flatMap((r: Json) => r.nodeIds))].sort(),
+    edgeIds: [...new Set(body.routes.flatMap((r: Json) => r.edgeIds))].sort(),
+  });
+
+  it('carries every node and edge of its routes once, with all their properties', async () => {
+    const res = await runDefault(security, leaf(rule('last', '_isSink', 'eq', true)));
+    expect(res.status).toBe(200);
+    const { nodeIds, edgeIds } = entitiesOf(res.body);
+    expect(res.body.nodes.map((n: Json) => n.id).sort()).toEqual(nodeIds);
+    expect(res.body.edges.map((e: Json) => e.id).sort()).toEqual(edgeIds);
+    // the same objects as GET /nodes and /edges
+    expect([...res.body.nodes].sort((a: Json, b: Json) => a.id.localeCompare(b.id))).toEqual(
+      (await getEntities(security, 'nodes', nodeIds as string[])).body.sort((a: Json, b: Json) =>
+        a.id.localeCompare(b.id),
+      ),
+    );
+    const edge = res.body.edges[0];
+    expect(edge.id).toBe(`${edge.from}->${edge.to}`);
+  });
+
+  it('holds for a set operation and is empty for an empty result', async () => {
+    const union = await runDefault(security, {
+      op: 'union',
+      args: [leaf(rule('first', 'name', 'eq', 'web')), leaf(rule('last', 'name', 'eq', 'ledger-db'))],
+    });
+    const { nodeIds } = entitiesOf(union.body);
+    expect(union.body.nodes.map((n: Json) => n.id).sort()).toEqual(nodeIds);
+    const none = await runDefault(security, leaf(rule('first', 'name', 'eq', 'no-such-node')));
+    expect([none.body.routes, none.body.nodes, none.body.edges]).toEqual([[], [], []]);
   });
 });
 
@@ -620,7 +656,7 @@ describe('route queries on the sample file (train-ticket-be.json)', () => {
       sample,
       leaf(rule('first', 'publicExposed', 'eq', true), rule('last', '_isSink', 'eq', true)),
     );
-    expect(empty.body).toEqual({ routes: [], total: 0, truncated: false, warnings: [] });
+    expect(empty.body).toEqual({ routes: [], nodes: [], edges: [], total: 0, truncated: false, warnings: [] });
   });
 
   it('sinks and vulnerabilities', async () => {

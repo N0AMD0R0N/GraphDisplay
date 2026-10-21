@@ -1,4 +1,4 @@
-import type { EdgeId, GraphSchema, NodeId, Warning } from '@gd/api-contract';
+import type { EdgeId, GraphEdge, GraphNode, GraphSchema, NodeId, Warning } from '@gd/api-contract';
 
 /** Language-agnostic query model (WorkPlan §2.2, §3.2). */
 
@@ -91,8 +91,14 @@ export interface Route {
  * What a query returns: the routes (ordered node and edge ids) and how complete the list is. Nodes and edges are
  * not part of it: consumers that need their properties ask for them by id (GET /graphs/:id/nodes and /edges).
  */
+/**
+ * The answer to a route query, self-contained: the routes list node and edge ids, and `nodes` / `edges` hold every
+ * node and edge on those routes once, with all their properties, so the result can be drawn without further calls.
+ */
 export interface QueryResult {
   routes: Route[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
   total: number | null;
   truncated: boolean;
   warnings: Warning[];

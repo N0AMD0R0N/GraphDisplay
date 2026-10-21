@@ -165,7 +165,11 @@ function publicProbes(): Probe[] {
       path: () => `/graphs/${graphId}/routes/query`,
       query: () => ({ q: JSON.stringify(leaf()), limit: 100, maxHops: 5, routeMode: 'all' }),
       status: 200,
-      check: (body) => expect(body.routes[0].nodeIds).toEqual([web, api, `${marker}-db`]),
+      check: (body) => {
+        expect(body.routes[0].nodeIds).toEqual([web, api, `${marker}-db`]);
+        expect(body.nodes.map((n: Json) => n.id).sort()).toEqual([api, `${marker}-db`, web].sort()); // self-contained
+        expect(body.edges).toHaveLength(2);
+      },
     },
     { operation: 'GET /graphs/{graphId}/links', path: () => `/graphs/${graphId}/links`, status: 501 },
     { operation: 'POST /graphs/{graphId}/links', path: () => `/graphs/${graphId}/links`, status: 501 },
