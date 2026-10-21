@@ -1,0 +1,11 @@
+{
+  "name": "@gd/query-core",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@gd/api-contract": "*",
+    "valibot": "^1.5.0"
+  }
+}

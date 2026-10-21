@@ -1,0 +1,51 @@
+{
+  "nodes": [
+    { "name": "Web", "kind": "Service", "publicExposed": true },
+    { "name": "api", "kind": "service", "publicExposed": true },
+    {
+      "name": "billing",
+      "kind": "service",
+      "publicExposed": false,
+      "vulnerabilities": [
+        {
+          "file": "billing/Pay.java",
+          "severity": "HIGH",
+          "message": "SQL concatenation\n",
+          "metadata": { "cwe": "CWE-89: SQL Injection" }
+        },
+        {
+          "file": "billing/Util.java",
+          "severity": "low",
+          "message": "Path built from input",
+          "metadata": { "cwe": "CWE-22: Path Traversal" }
+        }
+      ]
+    },
+    {
+      "name": "reports",
+      "kind": "service",
+      "publicExposed": false,
+      "vulnerabilities": [
+        {
+          "file": "reports/View.java",
+          "severity": "medium",
+          "message": "Unescaped output",
+          "metadata": { "cwe": "CWE-79: XSS" }
+        }
+      ]
+    },
+    { "name": "worker", "kind": "service", "publicExposed": false },
+    { "name": "ledger-db", "kind": "rds", "metadata": { "cloud": "AWS", "engine": "postgres" } },
+    { "name": "events", "kind": "sqs", "metadata": { "cloud": "AWS" } },
+    { "name": "admin", "kind": "service", "publicExposed": true },
+    { "name": "lonely", "kind": "service", "publicExposed": false }
+  ],
+  "edges": [
+    { "from": "Web", "to": "api" },
+    { "from": "api", "to": ["billing", "reports", "worker"] },
+    { "from": "billing", "to": ["ledger-db"] },
+    { "from": "reports", "to": ["events"] },
+    { "from": "worker", "to": ["billing"] },
+    { "from": "admin", "to": ["reports"] }
+  ]
+}

@@ -1,0 +1,6 @@
+# Dev override (npm run dev): only the data tier runs in Docker, the apps run locally with hot reload.
+# docker compose -f docker/compose.yaml -f docker/compose.dev.yaml up -d neo4j redis dal dal-lb
+services:
+  dal-lb:
+    ports:
+      - '127.0.0.1:${DAL_LB_PORT:-4000}:4000'

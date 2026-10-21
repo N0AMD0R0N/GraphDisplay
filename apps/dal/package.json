@@ -1,0 +1,16 @@
+{
+  "name": "@gd/dal",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@gd/api-contract": "*",
+    "@gd/query-core": "*",
+    "@gd/dal-contract": "*",
+    "@gd/engine-neo4j": "*",
+    "fastify": "^5.12.7",
+    "ioredis": "^6.0.0",
+    "tsx": "^4.23.15"
+  }
+}

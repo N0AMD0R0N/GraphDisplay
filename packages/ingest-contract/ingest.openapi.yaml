@@ -1,0 +1,74 @@
+openapi: 3.0.3
+info:
+  title: Graph Display ingestion service (internal)
+  version: 0.1.0
+  description: >
+    Turns raw graph JSON into a stored graph: parse, validate, normalise, derive properties, discover the schema.
+    Called by the API server (`POST /graphs` is forwarded here with the status and body passed through unchanged).
+paths:
+  /ingest/graphs:
+    post:
+      operationId: ingestGraph
+      parameters:
+        - { name: name, in: query, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              { schema: { type: string, description: Raw JSON text; malformed JSON is answered with 401 } },
+          }
+      responses:
+        '201': { description: Stored (UploadResponse of the public API) }
+        '207': { description: Stored, with derived missing nodes (UploadResponse with results) }
+        '401': { description: Invalid format (ApiError of the public API) }
+        '413': { description: Upload too large }
+  /ingest/graphs/{id}/rebuild:
+    post:
+      operationId: rebuildSchema
+      description: Recomputes the schema artefact of an existing graph from the data held by the DAL.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          {
+            description: Rebuilt,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        type: object,
+                        properties: { graphId: { type: string }, rebuilt: { type: array, items: { type: string } } },
+                      },
+                  },
+              },
+          }
+        '404': { description: Unknown graph }
+  /ingest/jobs:
+    post:
+      operationId: createIngestJob
+      description: Reserved - asynchronous ingestion (202 + polling) for very large or segmented graphs.
+      responses:
+        '501': { description: Not implemented }
+  /ingest/jobs/{id}:
+    get:
+      operationId: getIngestJob
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '501': { description: Not implemented }
+  /ingest/health:
+    get:
+      operationId: ingestHealth
+      responses:
+        '200':
+          {
+            description: Health,
+            content:
+              {
+                application/json:
+                  { schema: { type: object, properties: { status: { type: string }, dal: { type: boolean } } } },
+              },
+          }

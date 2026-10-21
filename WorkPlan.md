@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for approval |
-| **Inputs** | [`BasePlan.md`](BasePlan.md) (requirements), [`implementation-options.md`](implementation-options.md) (option analysis), [`json-review.md`](json-review.md) (input data analysis) |
+| **Inputs** | [`BasePlan.md`](docs/BasePlan.md) (requirements), [`implementation-options.md`](docs/implementation-options.md) (option analysis), [`json-review.md`](docs/json-review.md) (input data analysis) |
 | **Sample data** | [`train-ticket-be.json`](train-ticket-be.json) |
 
 ### Status legend
@@ -269,7 +269,7 @@ All keys are read and written only by the DAL.
 | `DELETE /graphs/:id` | Remove the graph and its cache entries |
 | `GET /graphs/:id/schema` | Property schema + kind colours (feeds the builder and the renderer) |
 | `GET /graphs/:id/view?focus=&limit=200` | Ranked view, stubs, hidden-component summary, layout positions |
-| `GET /graphs/:id/nodes/:nodeId/neighborhood?limit=200` | Expansion data for a "+N" stub |
+| `POST /graphs/:id/view/expand` | Body `{ nodeId, mode: "neighbors" | "component", visible: [{id,x,y}] }` → extended view for a "+N" stub or a hidden component (existing nodes keep their positions) |
 | `POST /graphs/:id/routes/query` | Body `{ query: SetTree, limit?, maxHops? }` → `QueryResult` |
 | *(reserved)* `POST /graphs/:id/links` | Future: connect segmented graphs; declared in OpenAPI, returns `501` |
 
@@ -290,9 +290,9 @@ All keys are read and written only by the DAL.
 | `GET /dal/graphs` · `GET /dal/graphs/:graphId` | List graphs and read graph metadata |
 | `DELETE /dal/graphs/:graphId` | Delete the graph and its cache keys (idempotent) |
 | `POST /dal/graphs/:graphId/run` | Execute a `NativeQuery` with limits → route rows |
-| `GET /dal/graphs/:graphId/nodes?ids=` · `/neighborhood` | Node and neighbourhood reads for views and stubs |
+| `GET /dal/graphs/:graphId/topology` · `POST /dal/graphs/:graphId/entities` | Cached node degrees + edge pairs for views and stubs; full nodes/edges by id |
 | `GET` · `PUT` · `DELETE /dal/cache/:graphId/:artifact` | Cached artefacts (schema, layout, view, query result) |
-| `GET /dal/colors` · `POST /dal/colors/:kind` | Read the colour map; atomically assign a colour to a new kind |
+| `GET /dal/colors` · `POST /dal/colors` | Read the colour map; atomically assign colours to new kinds (body `{ kinds: [...] }`) |
 | `POST /dal/maintenance/expire` | Trigger a sweep manually (also used by tests) |
 | `GET /dal/health` | Liveness + Neo4j/Redis connectivity (used by `dal-lb` and compose healthchecks) |
 
@@ -345,7 +345,7 @@ RETURN p
 **Known limits**
 - With the "all sub-paths" route mode (§9-1), "starts in a public service" on its own also returns every shorter prefix of each route. Combine it with an end rule (sink or terminal) for full routes.
 - Rules on vulnerability fields can't be tied to *the same* vulnerability (§9-3).
-- **Sample-data note:** on `train-ticket-be.json` the combined query and "public → vulnerable" return **no routes**, because no public node reaches a vulnerable service or a datastore (`json-review.md` D5). The SQL-injection findings are also labelled CWE-22, so searching for CWE-89 finds nothing. Tests use a crafted fixture where these queries are non-empty (D8).
+- **Sample-data note:** on `train-ticket-be.json` the combined query and "public → vulnerable" return **no routes**, because no public node reaches a vulnerable service or a datastore (`docs/json-review.md` D5). The SQL-injection findings are also labelled CWE-22, so searching for CWE-89 finds nothing. Tests use a crafted fixture where these queries are non-empty (D8).
 
 ---
 
@@ -388,7 +388,7 @@ RETURN p
 
 | ID | Area | Decision | Status |
 |---|---|---|---|
-| D1 | Runner | Jest with the `@swc/jest` transform. `tsc -b --noEmit` runs before the tests, so type errors also fail `npm test`. | Decided (Jest) / Proposed transform |
+| D1 | Runner | Jest with the `@swc/jest` transform. `tsc -p tsconfig.json --noEmit` runs before the tests, so type errors also fail `npm test`. | Decided (Jest) / Proposed transform |
 | D2 | Structure | `/tests/unit` (graph-core, query-core, lang-cypher, colour algorithm) · `/tests/api` (HTTP contract via Fastify `inject()`) · `/tests/ingest` (ingest contract: outcomes, seeding, rebuild) · `/tests/dal` (DAL contract, expiry, locking) · `/tests/perf` (API response time) · `/tests/fixtures` | Decided |
 | D3 | External services | API and perf tests use **Testcontainers** (Neo4j + Redis), seeded from fixtures. The DAL and the ingestion service run **in-process** in these tests (`DalClient` and `IngestClient` each have an HTTP and an in-process implementation), so the tests need neither the load balancer nor extra containers. DAL tests (`/tests/dal`) start two DAL instances on the same containers to cover lock contention and idempotent deletes. Unit tests need no services. | Proposed (possible now that Docker is decided) |
 | D4 | `npm test` | Runs everything. A custom reporter writes `reports/test-report-<timestamp>.json` (suite, test, status, duration, failure message, expected/actual diff). `reports/` is added to `.gitignore`. | Decided / Proposed format |
@@ -415,7 +415,7 @@ RETURN p
 | ID | Area | Decision | Status |
 |---|---|---|---|
 | E1 | Compose services | `neo4j`, `redis`, `dal` (×`DAL_REPLICAS`), `dal-lb`, `ingest`, `server`, `client`, in one `docker/compose.yaml` | Decided (dockerize) / Proposed layout |
-| E2 | Ports (bound to `127.0.0.1` only) | client `8080`, server `3000`, ingest `5000` and DAL load balancer `4000` (both published in dev only), Neo4j Browser `7474`, Bolt `7687`, Redis `6379`. DAL replicas themselves are never published. | Proposed |
+| E2 | Ports (bound to `127.0.0.1` only) | client `8080`, server `3001` (host port; `3000` is often taken, inside the container it is `3000`), DAL load balancer `4000` (published only by the dev override); the ingestion service is published nowhere (`npm run dev` runs it locally on `5000`), Neo4j Browser `7474`, Bolt `7687`, Redis `6379`. DAL replicas themselves are never published. | Proposed |
 | E3 | Images | Node 24 LTS (server and DAL builds); nginx for `dal-lb`; client built by Vite and served by nginx; Neo4j Community and Redis with **exact pinned tags** chosen at setup | Proposed |
 | E4 | Persistence | Named volume for Neo4j data. Redis without persistence (cache only, rebuilt on demand). | Proposed |
 | E5 | Scripts | `npm start` → `docker compose up --build` (seeds the sample) · `npm run dev` → Neo4j, Redis, DAL replicas and `dal-lb` in Docker; ingest, server and client run locally with hot reload (ingest and server → DAL at `http://127.0.0.1:4000`; server → ingest at `http://127.0.0.1:5000`) · `npm stop` → `docker compose down` | Proposed |
@@ -592,7 +592,7 @@ Dependency direction: `apps → lang-*/engine-* → query-core → api-contract`
 | `theme` | Light theme tokens; colour map from `/schema` merged into the theme; prepared for a dark theme | C10, §3.5 |
 | `layout/TopBar` | Graph picker, view-mode toggle, route stepper, warnings chip, progress bar | C1, C5, C9 |
 | `layout/QueryDrawer` | Collapsible drawer with Builder / Raw tabs, the presets menu and the set-tree composer | C1, B3, B3.1, B4 |
-| `graph/Canvas` | `ReactFlow` setup, `fitView`, MiniMap, Controls, Background | B6 |
+| `graph/Canvas` | `ReactFlow` setup, `fitView`, Controls, Background | B6 |
 | `graph/nodes` | `KindNode`, `GhostMarker`, `OverflowStub` | C2, C2.1, C4, C7 |
 | `graph/edges` | Smoothstep edge with highlight state | C3, C6 |
 | `graph/NodeDetails` | `NodeToolbar` card (click-to-open, single instance) | C8 |
@@ -605,7 +605,7 @@ Dependency direction: `apps → lang-*/engine-* → query-core → api-contract`
 | Component | Location | Responsibility | Related |
 |---|---|---|---|
 | Contract codegen | `npm run contract:gen` (in `api-contract`) | Regenerates types, schemas and client from `openapi.yaml` | A1.1 |
-| TypeScript build | root `tsconfig.json` with project references | Builds all packages in order; `tsc -b --noEmit` check before tests | D1 |
+| TypeScript check | root `tsconfig.json` (one project over all workspaces) | `tsc -p tsconfig.json --noEmit` before tests | D1 |
 | Lint / format | Root `eslint.config.js` + Prettier config | ESLint default recommended rules for JS, TypeScript and React; package-boundary import restriction; Prettier formatting | §6.1 |
 | Jest config | `tests/jest.config.ts` | Projects: `unit`, `api`, `perf`; `@swc/jest` transform | D1, D2 |
 | JSON reporter | `tests/reporter/json-reporter.ts` | Writes `reports/test-report-<timestamp>.json` | D4 |
@@ -644,3 +644,62 @@ Dependency direction: `apps → lang-*/engine-* → query-core → api-contract`
 | `prettier`, `eslint-config-prettier` | all workspaces (dev) | Formatting, without overlapping lint rules |
 
 Exact versions are pinned in the lockfile at P0 (React 19 is pinned to its latest stable release at that time).
+
+---
+
+## 12. Implementation status
+
+All phases P0–P9 are implemented. The application runs under Docker Compose (`npm start`), `npm test` and `npm run test:bail` pass, and the UI was exercised in a real browser.
+
+### 12.1 Verification
+
+| What | Result |
+|---|---|
+| `npm test` (type-check, then Jest with Testcontainers for Neo4j and Redis) | 13 suites, 226 tests passing; writes `reports/test-report-<timestamp>.json` |
+| `npm run test:bail` | Stops at the first failing test, skips the rest, prints the failure reason, exits non-zero (checked with a deliberately failing probe test) |
+| `npm run lint`, type-check | Clean, default ESLint recommended rules |
+| Performance test (1,000 nodes / 10,000 edges) | Timings recorded in `reports/perf-<timestamp>.json`, not gated (see §12.3) |
+| Browser flows (headless Chrome against the Docker deployment) | Upload through the UI, presets, builder rules, raw Cypher editor, empty-result overlay, route stepper and list, keyboard navigation, cycle marker, "+N" stubs, hidden components, drawer collapse: all passing, no console errors |
+| Load balancing | Both DAL replicas served requests (76 and 63 in one session) |
+
+### 12.2 Differences from the plan
+
+| Area | Plan | Implemented | Why |
+|---|---|---|---|
+| A1.1 contracts | Types, Valibot schemas and clients **generated** from OpenAPI | Three hand-written OpenAPI files (`openapi.yaml`, `ingest.openapi.yaml`, `dal.openapi.yaml`) plus hand-written Valibot schemas and typed clients. A contract test checks that every documented operation exists in the code and every `$ref` resolves. | This is the fallback named in §10 (codegen maturity). There is no generator step, so the YAML can drift from the code except for what the contract test covers. |
+| A2 validation | Fastify's Ajv from the OpenAPI schemas | Valibot validation inside the handlers | Follows from the line above |
+| D1 / P0 | TypeScript project references | One root `tsconfig.json`, `tsc -p tsconfig.json --noEmit` | Simpler; all workspaces are type-checked together |
+| A4.2 raw queries | Parser-based validation | A tokenising check: literals and comments are masked, then write/admin keywords, the `$g` scope, a single `RETURN` with one plain variable, and a single statement are verified. Results are additionally guarded after execution (graph scope, hop limit, simple paths). | No Cypher parser dependency. Strictness errs on the safe side (for example a property that is literally named `set` is accepted only as `n.set`). |
+| Raw query ordering | "Sorted longest first" | Builder queries are ordered in Cypher; raw queries are sorted after execution, so a raw query **without its own `ORDER BY`** that exceeds the limit returns an arbitrary subset (flagged `truncated`) | A generic wrapper cannot order an unknown return expression before the limit |
+| E2 ports | Server on 3000 | Host port **3001** (`SERVER_PORT`) | Port 3000 was occupied on the development machine |
+| B4 editor | `@neo4j-cypher/react-codemirror` (latest) | Pinned to **1.0.4** with a plain-textarea fallback if the editor fails | The `latest` tag (2.0.0-next) ships unresolved `workspace:*` dependencies and cannot be installed |
+| B6 mini-map | MiniMap listed among the built-ins | **Not included** | The mini-map computed its bounds but drew no nodes with this React Flow version; a blank widget was worse than none |
+| B6 attribution | (not specified) | The React Flow attribution is shown | Hiding it requires a Pro subscription |
+| B6 dragging | (not specified) | Node dragging is disabled | The layout is server-owned and consistent across clients (B5) |
+| B5.1 expansion layout | Elk interactive mode with fixed positions | Existing nodes keep the positions the client sends; the new nodes are laid out as one block to the right of them | Guarantees no overlap and unchanged existing nodes |
+| A11 / seeding | (not specified) | `SEED_NAME` names the seeded graph (default: the file name) | The mounted file is called `graph.json` |
+| A11 graph id | Content hash | Hash of the normalised graph **and only** the settings that change derived properties (`SINK_KINDS`, `SEVERITY_SCALE`). Ports, URLs and seed settings do not change it. | A regression found during manual verification: hashing the whole service config created a new graph on every config change |
+| Pinned graphs | Seed is pinned | Storing an existing graph with `pinned: true` also **pins it** and removes its expiry | Otherwise a seed that already existed unpinned would expire |
+| Test tooling | `pure-rand` 8, default Jest module handling | `pure-rand` 7.x; Jest transforms the ESM-only `cookie` package | Jest cannot load ESM-only packages |
+| Dev script | `npm run dev` | `tools/dev.mjs`: Neo4j, Redis, DAL replicas and `dal-lb` in Docker; ingest, server (`:3001`) and Vite (`:5173`) run locally | As planned; the ingestion service is not published by the dev override because it runs locally |
+
+### 12.3 Performance findings (not gated, per D6)
+
+Measured on the development machine against the 1,000-node / 10,000-edge synthetic graph:
+
+| Query | Typical time |
+|---|---|
+| Standard query (20 conditions), anchored on a start node, `maxHops` 3 | roughly 130–700 ms |
+| Heavy query (70 conditions), same shape | roughly 160–1,100 ms |
+| Set operation whose second operand is an unanchored "any node of kind X" rule | about 2.3–2.8 s (the engine must enumerate every route of up to 3 hops before ordering) |
+| Graph view, cold (degree ranking + elk layout) / cached | about 1.0–1.2 s / about 5 ms |
+| Schema, expand a "+N" stub | about 3 ms, about 60–110 ms |
+
+The base plan's targets (100 ms standard, 500 ms heavy) are met for **anchored** queries on small result sets and **not** met for broad unanchored ones, because the number of simple paths grows exponentially with the hop limit. The guards (`maxHops`, route limit, the 5 s transaction limit → `504`) keep such queries from running away, and the schema-based anchoring (A4.6) keeps selective ones fast. Closing the gap for broad queries would need precomputed route indexes, which the plan deliberately left out of this iteration.
+
+### 12.4 Known limitations
+
+- Rules on fields inside list items (for example `vulnerabilities`) cannot be tied to the same element (A3.5, accepted).
+- The sample file has no route from a public service to a vulnerable service or datastore (`docs/json-review.md` D5): the combined preset correctly returns "no routes" on it. The crafted security fixture in `tests/fixtures` covers the non-empty case.
+- Neo4j Community and Redis are single instances; only the DAL tier is load balanced.
+- Everything runs without authentication, as specified.

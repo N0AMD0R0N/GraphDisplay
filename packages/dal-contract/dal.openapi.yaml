@@ -1,0 +1,162 @@
+openapi: 3.0.3
+info:
+  title: Graph Display data access layer (internal)
+  version: 0.1.0
+  description: >
+    The only component that talks to Neo4j and Redis. Stateless: any replica can serve any request and all
+    writes are idempotent, so the replicas can sit behind a round-robin load balancer.
+paths:
+  /dal/health:
+    get:
+      operationId: dalHealth
+      responses:
+        '200':
+          {
+            description: ok when Neo4j and Redis are reachable,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        type: object,
+                        properties:
+                          {
+                            status: { type: string, enum: [ok, degraded] },
+                            neo4j: { type: boolean },
+                            redis: { type: boolean },
+                          },
+                      },
+                  },
+              },
+          }
+  /dal/graphs:
+    get:
+      operationId: dalListGraphs
+      responses:
+        '200': { description: Graph summaries }
+  /dal/graphs/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      operationId: dalPutGraph
+      description: Stores a normalised graph. Idempotent by graph id (a content hash); the expiry is refreshed when it exists.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [name, graph, warnings, pinned] } } }
+      responses:
+        '201': { description: Created }
+        '200': { description: Already existed }
+    get:
+      operationId: dalGetGraph
+      responses:
+        '200': { description: Summary }
+        '404': { description: Unknown graph }
+    delete:
+      operationId: dalDeleteGraph
+      description: Deletes the graph from Neo4j and all its keys from Redis. Idempotent.
+      responses:
+        '204': { description: Deleted }
+  /dal/graphs/{id}/run:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: dalRun
+      description: >
+        Executes a native query (read transaction, time limit). Results are cached by the DAL.
+        Returns route rows (ordered node ids, optional cycle marker) and a truncation flag.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [query, limit, maxHops] } } }
+      responses:
+        '200': { description: Route rows }
+        '422': { description: Invalid query }
+        '504': { description: Query time limit exceeded }
+  /dal/graphs/{id}/topology:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: dalTopology
+      description: Node ids with degree and kind, plus [from, to] pairs. Cached.
+      responses:
+        '200': { description: Topology }
+        '404': { description: Unknown graph }
+  /dal/graphs/{id}/entities:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: dalEntities
+      description: Full original nodes and normalised edges by id.
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  {
+                    type: object,
+                    properties:
+                      {
+                        nodeIds: { type: array, items: { type: string } },
+                        edgeIds: { type: array, items: { type: string } },
+                      },
+                  },
+              },
+          }
+      responses:
+        '200': { description: Nodes and edges }
+  /dal/cache/{graphId}/{artifact}:
+    parameters:
+      - { name: graphId, in: path, required: true, schema: { type: string } }
+      - {
+          name: artifact,
+          in: path,
+          required: true,
+          schema: { type: string, enum: [schema, topology, layout, view, q] },
+        }
+      - { name: key, in: query, required: false, schema: { type: string } }
+    get:
+      operationId: dalCacheGet
+      responses:
+        '200': { description: Cached artefact }
+        '404': { description: Miss }
+    put:
+      operationId: dalCachePut
+      responses:
+        '204': { description: Cached }
+  /dal/cache/{graphId}:
+    parameters:
+      - { name: graphId, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: dalCacheDelete
+      description: Deletes every cached artefact of the graph.
+      responses:
+        '204': { description: Deleted }
+  /dal/colors:
+    get:
+      operationId: dalColors
+      description: The global, append-only kind to colour map.
+      responses:
+        '200': { description: Map of kind to hex colour }
+    post:
+      operationId: dalAssignColors
+      description: Atomically assigns colours to kinds that have none yet and returns the full map.
+      requestBody:
+        required: true
+        content:
+          {
+            application/json:
+              {
+                schema:
+                  { type: object, required: [kinds], properties: { kinds: { type: array, items: { type: string } } } },
+              },
+          }
+      responses:
+        '200': { description: Map of kind to hex colour }
+  /dal/maintenance/expire:
+    post:
+      operationId: dalExpire
+      description: Runs an expiry sweep now. Only the replica holding the expiry lock sweeps; others answer skipped.
+      responses:
+        '200': { description: Sweep result }

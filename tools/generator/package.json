@@ -1,0 +1,11 @@
+{
+  "name": "@gd/generator",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@gd/api-contract": "*",
+    "pure-rand": "^7.0.1"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "nodes": [
+    { "name": "a", "kind": "service" },
+    { "name": "b", "kind": "service" },
+    { "name": "c", "kind": "service" },
+    { "name": "d", "kind": "service" },
+    { "name": "self", "kind": "service" }
+  ],
+  "edges": [
+    { "from": "a", "to": ["b"] },
+    { "from": "b", "to": ["c"] },
+    { "from": "c", "to": ["d"] },
+    { "from": "d", "to": ["b"] },
+    { "from": "self", "to": ["self"] }
+  ]
+}

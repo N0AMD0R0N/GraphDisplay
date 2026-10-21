@@ -1,0 +1,47 @@
+{
+  "name": "graph-display",
+  "version": "0.1.0",
+  "private": true,
+  "description": "System Graph Explorer: ingest a JSON system graph, query routes with Cypher, explore them in a React Flow UI",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tools/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "docker compose -f docker/compose.yaml up --build",
+    "start:detached": "docker compose -f docker/compose.yaml up --build -d",
+    "stop": "docker compose -f docker/compose.yaml down",
+    "dev": "node tools/dev.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "test": "node tools/run-tests.mjs",
+    "test:bail": "node tools/run-tests.mjs --bail",
+    "gen": "tsx tools/generator/src/cli.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@swc/core": "^1.16.18",
+    "@swc/jest": "^0.2.39",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
+    "jest": "^30.5.2",
+    "prettier": "^3.9.10",
+    "testcontainers": "^12.2.1",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.0"
+  }
+}

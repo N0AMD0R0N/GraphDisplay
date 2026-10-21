@@ -1,0 +1,78 @@
+import { useEffect } from 'react';
+import styled from 'styled-components';
+import { useGraphs } from './api';
+import { Canvas } from './graph/Canvas';
+import { QueryDrawer } from './layout/QueryDrawer';
+import { TopBar } from './layout/TopBar';
+import { useUI } from './store';
+
+const Shell = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+`;
+const Body = styled.div`
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+`;
+const OpenButton = styled.button`
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 12;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid ${(p) => p.theme.colors.border};
+  background: ${(p) => p.theme.colors.surface};
+  box-shadow: ${(p) => p.theme.shadow};
+  cursor: pointer;
+  font-weight: 600;
+`;
+
+const isTyping = (el: EventTarget | null) =>
+  el instanceof HTMLElement &&
+  (el.matches('input, textarea, select') || el.isContentEditable || !!el.closest('.cm-editor'));
+
+export function App() {
+  const graphs = useGraphs();
+  const { graphId, setGraphId, drawerOpen, toggleDrawer, setOpenNode, setRouteListOpen, selectRoute } = useUI();
+
+  // pick a graph once the list is known (the pinned seed graph first)
+  useEffect(() => {
+    if (graphs.data && graphs.data.length > 0 && !graphs.data.some((g) => g.graphId === graphId)) {
+      setGraphId((graphs.data.find((g) => g.pinned) ?? graphs.data[0]).graphId);
+    }
+  }, [graphs.data, graphId, setGraphId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpenNode(null);
+        setRouteListOpen(false);
+      }
+      if (isTyping(e.target)) return;
+      const { selected } = useUI.getState();
+      if (e.key === 'ArrowRight') selectRoute(selected + 1);
+      if (e.key === 'ArrowLeft') selectRoute(selected - 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setOpenNode, setRouteListOpen, selectRoute]);
+
+  return (
+    <Shell>
+      <TopBar />
+      <Body>
+        <QueryDrawer />
+        {!drawerOpen && (
+          <OpenButton type="button" onClick={toggleDrawer} aria-label="Open query panel">
+            » Query
+          </OpenButton>
+        )}
+        <Canvas />
+      </Body>
+    </Shell>
+  );
+}

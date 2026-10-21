@@ -1,0 +1,8 @@
+node_modules
+dist
+reports
+coverage
+package-lock.json
+*.md
+train-ticket-be.json
+tests/fixtures
