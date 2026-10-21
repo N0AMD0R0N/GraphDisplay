@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { registerOpenApiDocs } from '@gd/api-contract/src/openapi-docs';
 import { hashString, QueryError, type Topology } from '@gd/query-core';
 import type {
   EntitiesBody,
@@ -8,7 +9,7 @@ import type {
   RunBody,
   RunResponse,
 } from '@gd/dal-contract';
-import { CACHE_ARTIFACTS } from './constants';
+import { CACHE_ARTIFACTS, OPENAPI_DOCS } from './constants';
 import type { DalServices } from './types';
 
 /**
@@ -16,6 +17,8 @@ import type { DalServices } from './types';
  * Every read, write and delete against Neo4j and Redis goes through these.
  */
 export function registerApi(app: FastifyInstance, { engine, cache, colors, sweeper, config }: DalServices): void {
+  registerOpenApiDocs(app, OPENAPI_DOCS);
+
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     if (err instanceof QueryError) {
       return reply.code(err.status).send({ error: { status: err.status, code: err.code, message: err.message } });

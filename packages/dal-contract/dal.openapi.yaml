@@ -160,3 +160,21 @@ paths:
       description: Runs an expiry sweep now. Only the replica holding the expiry lock sweeps; others answer skipped.
       responses:
         '200': { description: Sweep result }
+  /dal/docs:
+    get:
+      operationId: dalDocs
+      summary: Interactive API documentation (Swagger UI)
+      responses:
+        '200': { description: The Swagger UI page, content: { text/html: { schema: { type: string } } } }
+  /dal/docs/json:
+    get:
+      operationId: dalOpenApiJson
+      summary: This OpenAPI document, as JSON
+      responses:
+        '200': { description: The OpenAPI document, content: { application/json: { schema: { type: object } } } }
+  /dal/docs/yaml:
+    get:
+      operationId: dalOpenApiYaml
+      summary: This OpenAPI document, as YAML
+      responses:
+        '200': { description: The OpenAPI document, content: { application/x-yaml: { schema: { type: string } } } }

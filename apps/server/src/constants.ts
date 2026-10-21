@@ -55,3 +55,9 @@ export const LAYOUT_BOX = {
 
 /** Prefix of the id of a "+N" stub node: `stub:<nodeId>`. */
 export const STUB_ID_PREFIX = 'stub:';
+
+/** The OpenAPI contract of this service, served with Swagger UI at `routePrefix` (the document at /json and /yaml). */
+export const OPENAPI_DOCS = {
+  specFile: require.resolve('@gd/api-contract/openapi.yaml'),
+  routePrefix: '/docs',
+} as const;

@@ -8,7 +8,9 @@ info:
     route length and set operations. Results are Route objects that can be rendered by the UI.
 servers:
   - url: /api
-    description: Through the UI's nginx (the API server itself serves these paths at the root)
+    description: Through the UI's nginx
+  - url: /
+    description: The API server directly
 paths:
   /graphs:
     post:
@@ -284,6 +286,24 @@ paths:
                   },
               },
           }
+  /docs:
+    get:
+      operationId: apiDocs
+      summary: Interactive API documentation (Swagger UI)
+      responses:
+        '200': { description: The Swagger UI page, content: { text/html: { schema: { type: string } } } }
+  /docs/json:
+    get:
+      operationId: apiOpenApiJson
+      summary: This OpenAPI document, as JSON
+      responses:
+        '200': { description: The OpenAPI document, content: { application/json: { schema: { type: object } } } }
+  /docs/yaml:
+    get:
+      operationId: apiOpenApiYaml
+      summary: This OpenAPI document, as YAML
+      responses:
+        '200': { description: The OpenAPI document, content: { application/x-yaml: { schema: { type: string } } } }
 components:
   responses:
     NotFound:

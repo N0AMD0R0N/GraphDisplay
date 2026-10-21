@@ -42,3 +42,9 @@ export const LOG_PREFIX = '[dal]';
 
 /** Neo4j needs a while to boot: the DAL retries until it accepts connections. */
 export const NEO4J_STARTUP = { attempts: 60, delayMs: 3000 } as const;
+
+/** The OpenAPI contract of this service, served with Swagger UI at `routePrefix` (the document at /json and /yaml). */
+export const OPENAPI_DOCS = {
+  specFile: require.resolve('@gd/dal-contract/dal.openapi.yaml'),
+  routePrefix: '/dal/docs',
+} as const;

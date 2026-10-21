@@ -67,12 +67,12 @@ export function QueryDrawer() {
   // the editor starts from the query in the address bar (a bookmarked or shared URL), if there is one
   const [initial] = useState(readUrl);
   const [blocks, setBlocks] = useState<Block[]>(
-    () => (initial.q ? treeToBlocks(initial.q, LANG.defaultText) : null) ?? [newBlock(LANG.defaultText)],
+    () => (initial.query ? treeToBlocks(initial.query, LANG.defaultText) : null) ?? [newBlock(LANG.defaultText)],
   );
-  const [routeMode, setRouteMode] = useState<RouteMode>(initial.mode ?? 'all');
-  const [maxHops, setMaxHops] = useState(initial.hops ? String(initial.hops) : '');
+  const [routeMode, setRouteMode] = useState<RouteMode>(initial.routeMode ?? 'all');
+  const [maxHops, setMaxHops] = useState(initial.maxHops ? String(initial.maxHops) : '');
   const [limit, setLimit] = useState(initial.limit ? String(initial.limit) : '');
-  const [includeSub, setIncludeSub] = useState(initial.sub === true);
+  const [includeSub, setIncludeSub] = useState(initial.includeSubRoutes === true);
 
   const update = (id: number, patch: Partial<Block>) =>
     setBlocks((bs) => bs.map((b) => (b.id === id ? { ...b, ...patch } : b)));
@@ -80,17 +80,19 @@ export function QueryDrawer() {
 
   const compiled = useMemo(() => blocksToTree(blocks, schema)!, [blocks, schema]);
 
-  // The address bar follows the editor: the query is always visible in the URL (and can be bookmarked or shared)
+  // The address bar follows the editor: once the query is edited or run it is visible in the URL, as the API request
+  // GET /graphs/:id/routes/query?q=… (and can be bookmarked or shared). The untouched default query is left out.
+  const untouched = blocks.length === 1 && blocks[0].mode === 'builder' && blocks[0].rqb.rules.length === 0 && !result;
   useEffect(() => {
     if (!schema) return; // values are typed by the schema: wait for it, so a restored query is not rewritten
     writeUrl({
-      q: blocksToTree(blocks, schema, true)?.query,
-      mode: routeMode === 'maximal' ? 'maximal' : undefined,
-      hops: Number(maxHops) || undefined,
+      query: untouched ? undefined : blocksToTree(blocks, schema, true)?.query,
+      routeMode: routeMode === 'maximal' ? 'maximal' : undefined,
+      maxHops: Number(maxHops) || undefined,
       limit: Number(limit) || undefined,
-      sub: includeSub || undefined,
+      includeSubRoutes: includeSub || undefined,
     });
-  }, [blocks, schema, routeMode, maxHops, limit, includeSub]);
+  }, [blocks, schema, routeMode, maxHops, limit, includeSub, untouched]);
 
   const run = useMutation({
     mutationFn: () => {
@@ -103,8 +105,8 @@ export function QueryDrawer() {
     onSuccess: (data) => setResult(data),
   });
 
-  // a URL that was opened with a result on screen runs its query again
-  const autoRun = useRef(initial.run === true && initial.q !== undefined);
+  // an opened address of a route query is that query's API request: it runs (unless it is marked as a draft)
+  const autoRun = useRef(initial.query !== undefined && !initial.draft);
   useEffect(() => {
     if (!autoRun.current || !graphId || !schema) return;
     autoRun.current = false;

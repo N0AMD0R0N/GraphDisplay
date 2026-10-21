@@ -49,7 +49,7 @@ export function ExplorerPage() {
   }, [graphId]);
   useEffect(() => {
     writeUrl({
-      run: result ? true : undefined,
+      draft: result ? undefined : true,
       route: result && selected > 0 ? selected : undefined,
       view: result ? viewMode : undefined,
     });

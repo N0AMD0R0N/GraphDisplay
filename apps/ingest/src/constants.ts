@@ -35,3 +35,9 @@ export const ERROR_CODES = {
 } as const;
 
 export const HEALTH = { ok: 'ok', degraded: 'degraded' } as const;
+
+/** The OpenAPI contract of this service, served with Swagger UI at `routePrefix` (the document at /json and /yaml). */
+export const OPENAPI_DOCS = {
+  specFile: require.resolve('@gd/ingest-contract/ingest.openapi.yaml'),
+  routePrefix: '/ingest/docs',
+} as const;

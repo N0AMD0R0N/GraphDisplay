@@ -1,8 +1,10 @@
 import type { UrlState } from '../types';
-import { buildSearch, parseUrlState } from './urlState';
+import { buildUrl, parseUrlState } from './urlState';
+
+const currentAddress = () => `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
 /** Reads the state from the address bar. */
-export const readUrl = (): UrlState => parseUrlState(window.location.search);
+export const readUrl = (): UrlState => parseUrlState(currentAddress());
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 let pending: Partial<UrlState> = {};
@@ -16,10 +18,8 @@ export function writeUrl(patch: Partial<UrlState>): void {
   pending = { ...pending, ...patch };
   clearTimeout(timer);
   timer = setTimeout(() => {
-    const next = { ...readUrl(), ...pending };
+    const next = buildUrl({ ...readUrl(), ...pending });
     pending = {};
-    const search = buildSearch(next);
-    if (search !== window.location.search)
-      window.history.replaceState(null, '', `${window.location.pathname}${search}`);
+    if (next !== currentAddress()) window.history.replaceState(null, '', next);
   }, 150);
 }

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import { registerOpenApiDocs } from '@gd/api-contract/src/openapi-docs';
 import { CONTENT_TYPE_JSON } from '@gd/api-contract';
-import { ERROR_CODES, HEALTH } from './constants';
+import { ERROR_CODES, HEALTH, OPENAPI_DOCS } from './constants';
 import { rebuildSchema, runPipeline } from './pipeline';
 import type { IngestAppDeps } from './types';
 
@@ -9,6 +10,8 @@ import type { IngestAppDeps } from './types';
  * and health.
  */
 export function registerApi(app: FastifyInstance, { dal, config, maxUploadBytes }: IngestAppDeps): void {
+  registerOpenApiDocs(app, OPENAPI_DOCS);
+
   const deps = { dal, config };
 
   // The body is kept as text so that malformed JSON is judged by the pipeline (-> 401), not by Fastify.

@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
+import { registerOpenApiDocs } from '@gd/api-contract/src/openapi-docs';
 import { CONTENT_TYPE_JSON, ServiceCallError, type ExpandRequest } from '@gd/api-contract';
 import { cypherLanguage } from '@gd/lang-cypher';
 import { QueryError } from '@gd/query-core';
-import { ERROR_CODES, HEALTH, MAX_ENTITY_IDS } from './constants';
+import { ERROR_CODES, HEALTH, MAX_ENTITY_IDS, OPENAPI_DOCS } from './constants';
 import { getSchema, runQuery } from './query';
 import type { ServerDeps } from './types';
 import { expandView, getView } from './view';
@@ -31,6 +32,8 @@ const notFound = (message: string) => ({ error: { status: 404, code: ERROR_CODES
  * storage goes through the DAL, uploads through the ingestion service.
  */
 export function registerApi(app: FastifyInstance, deps: ServerDeps): void {
+  registerOpenApiDocs(app, OPENAPI_DOCS);
+
   const { dal, ingest, limits } = deps;
   const languages = new Map((deps.languages ?? [cypherLanguage]).map((l) => [l.id, l]));
   const queryDeps = { dal, ingest, languages, limits };

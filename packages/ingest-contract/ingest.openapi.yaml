@@ -72,3 +72,21 @@ paths:
                   { schema: { type: object, properties: { status: { type: string }, dal: { type: boolean } } } },
               },
           }
+  /ingest/docs:
+    get:
+      operationId: ingestDocs
+      summary: Interactive API documentation (Swagger UI)
+      responses:
+        '200': { description: The Swagger UI page, content: { text/html: { schema: { type: string } } } }
+  /ingest/docs/json:
+    get:
+      operationId: ingestOpenApiJson
+      summary: This OpenAPI document, as JSON
+      responses:
+        '200': { description: The OpenAPI document, content: { application/json: { schema: { type: object } } } }
+  /ingest/docs/yaml:
+    get:
+      operationId: ingestOpenApiYaml
+      summary: This OpenAPI document, as YAML
+      responses:
+        '200': { description: The OpenAPI document, content: { application/x-yaml: { schema: { type: string } } } }

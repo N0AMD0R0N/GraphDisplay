@@ -86,6 +86,7 @@ SEED_GRAPH=/absolute/path/graph.json SEED_NAME=my-graph \
 | URL | What |
 |---|---|
 | http://127.0.0.1:8080 | The UI (its nginx also proxies `/api/*` to the API) |
+| http://127.0.0.1:8080/docs | The API documentation (Swagger UI) |
 | http://127.0.0.1:3001 | The API server directly (`GET /health`, `GET /graphs`, ...) |
 | http://127.0.0.1:7474 | Neo4j Browser (user `neo4j`, password `graphdisplay-dev`) |
 
@@ -126,7 +127,7 @@ Tests start their own isolated Neo4j and Redis with Testcontainers (Docker requi
 - **Click a node** for all its properties (stays open until you click elsewhere or press Esc). In the whole-graph view this also **highlights every route leading up to that node**; clicking an **edge** highlights only the routes that end at the node it points to **and pass through that edge**. Click empty space, press Esc or use *Clear* to remove it.
 - **Vulnerabilities** are shown as a glowing warm border, from light orange (low) to pinkish red (critical).
 - **include sub-routes** (next to *Run query*) is off by default: a route that lies inside another route of the result is not listed. **Full graph** (next to *Collapse*) drops the query result and returns to the whole graph.
-- **The query is in the address bar** and follows the editor while you type, so you can bookmark or share it. Opening such a URL restores the editor and, if it showed a result, runs it and selects the same route. **Upload JSON** adds another graph.
+- **The address bar uses the API's routes**: `/graphs/<id>` for a graph and `/graphs/<id>/routes/query?q=…&limit=…&maxHops=…&routeMode=…&includeSubRoutes=…` for a query. These are the same path and parameters as the API request, so adding `/api` in front returns the JSON result. It follows the editor while you type, so you can bookmark or share a query. Opening a query address runs it. What only the UI needs is in the `#` fragment, which is never sent to a server: `#route=3&view=graph` (the selected route and the view), or `#draft` for a query that was edited but not run (opening it restores the editor without running it). **Upload JSON** adds another graph.
 
 ### Input format
 
@@ -141,7 +142,20 @@ Tests start their own isolated Neo4j and Redis with Testcontainers (Docker requi
 
 ## API
 
-`POST /graphs` (upload), `GET /graphs`, `GET /graphs/:id`, `DELETE /graphs/:id`, `GET /graphs/:id/schema`, `GET /graphs/:id/view`, `POST /graphs/:id/view/expand`, `GET /graphs/:id/nodes?id=…`, `GET /graphs/:id/edges?id=…`, `GET /graphs/:id/routes/query`. The full contract is in [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml). Through the UI's nginx the API is under `/api`.
+The whole API is described in OpenAPI 3 documents, and every service serves its own document together with Swagger UI, where each operation can also be tried out:
+
+| Service | Contract | Served at |
+|---|---|---|
+| Public API (API server) | [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml) | **`/docs`** (Swagger UI), `/docs/json`, `/docs/yaml`, e.g. http://127.0.0.1:8080/docs (Compose) or http://127.0.0.1:8090/docs (Kubernetes example) |
+| Ingestion service (internal) | [`packages/ingest-contract/ingest.openapi.yaml`](packages/ingest-contract/ingest.openapi.yaml) | `/ingest/docs`, `/ingest/docs/json`, `/ingest/docs/yaml` on the ingestion service |
+| DAL (internal) | [`packages/dal-contract/dal.openapi.yaml`](packages/dal-contract/dal.openapi.yaml) | `/dal/docs`, `/dal/docs/json`, `/dal/docs/yaml` on the DAL |
+
+The documents are the source of truth: they are written by hand and served exactly as they are. Two test files keep them honest:
+
+- `tests/api/contract.test.ts` fails if a service has a route that its document does not describe, if the document describes an operation the service does not implement, or if the served document differs from the file.
+- `tests/api/reachability.test.ts` sends a real, valid request to **every documented operation** and checks that it gets the expected status, and that this status is one the document lists. Its request table has to cover every operation, so an operation cannot be added without a check. Set `TEST_APP_URL` to run the public part against a deployment through its nginx, e.g. `TEST_APP_URL=http://127.0.0.1:8090 npx jest --config tests/jest.config.cjs tests/api/reachability`. The internal services are not published outside the Docker network or cluster; reach their docs from inside it, or with `kubectl port-forward`.
+
+Public operations: `POST /graphs` (upload), `GET /graphs`, `GET /graphs/:id`, `DELETE /graphs/:id`, `GET /graphs/:id/schema`, `GET /graphs/:id/view`, `POST /graphs/:id/view/expand`, `GET /graphs/:id/nodes?id=…`, `GET /graphs/:id/edges?id=…`, `GET /graphs/:id/routes/query`, `POST /graphs/:id/links` (reserved, 501), `GET /health`. Through the UI's nginx the API is under `/api` (Swagger UI uses that server by default; choose `/` when you open the API server directly on port 3001).
 
 ```bash
 # routes of 5+ nodes that end in the database, except those that pass through travel-service
@@ -180,7 +194,9 @@ Graphs expire after `CACHE_TTL_SECONDS` unless pinned; seeded graphs are pinned.
 apps/<service>/src/        app.ts (wiring) · api.ts (endpoints) · types/ (data objects) · constants.ts · main.ts
 apps/client/src/           pages/ · components/ (one component per file) · lib/ (pure logic) · hooks/ · types/
                            constants.ts · theme.ts (tokens built from the shared palette)
-packages/api-contract/     wire types, openapi.yaml, shared constants (ports, signals) and colors.ts (every colour)
+packages/api-contract/     wire types, openapi.yaml (the public contract), shared constants (ports, signals), colors.ts
+                           (every colour) and openapi-docs.ts (serves a contract with Swagger UI)
+packages/*-contract/       ingest.openapi.yaml, dal.openapi.yaml: the contracts of the internal services
 docker/                    Dockerfiles, compose.yaml, nginx config templates
 k8s/                       generic Kustomize manifests
 deploy-example.sh          the example Kubernetes deployment
@@ -200,8 +216,15 @@ tests/                     unit, API, DAL, ingestion and performance tests
 
 ## Development steps
 
-1. added a base plan document, interpreting the project requirement and elaborating on edge cases
-2. utilize Opus 5.5 to analyze both the plan and the JSON document for gaps in planning.
-3. expand options for implementations and establish a detailed workplan
-4. implementation via Sonnet
-5. high-level fixes and UI changes (query mirrored in the address bar, node/edge highlighting, vulnerability markers, GET query endpoint returning routes only)
+Each step is one commit (`stepN - …`); there is no step 7.
+
+| Step | What was done |
+|---|---|
+| 1 | added a base plan document, interpreting the project requirement and elaborating on edge cases |
+| 2 | utilize Opus 5.5 to analyze both the plan and the JSON document for gaps in planning. |
+| 3 | expand options for implementations and establish a detailed workplan |
+| 4 | implementation via Sonnet |
+| 5 | high-level fixes and UI changes (query mirrored in the address bar, node/edge highlighting, vulnerability markers, GET query endpoint returning routes only) |
+| 6 | backend, application and deployment restructuring (each service split into wiring, API, types and constants; client components, pages and logic in their own files; one shared colour palette; Kubernetes manifests; addresses and ports taken from the environment) |
+| 8 | deployment for examples and finishing touches (`deploy-example.sh` with the example graph as seed and full cleanup on exit; Compose and development take the seed from the environment; README with requirements and usage) |
+| 9 | api and e2e test and fixes (every service serves its OpenAPI document with Swagger UI; contract tests in both directions; a reachability test for every documented operation, also against a running deployment; the address bar uses the API's routes; deploy script readiness fix) |

@@ -1,11 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { parse } from 'yaml';
 import { DEFAULT_CONFIG } from '@gd/graph-core';
 import { injectTransport } from '@gd/api-contract';
 import { IngestClient } from '@gd/ingest-contract';
 import { createIngestApp } from '../../apps/ingest/src/app';
+import { registerApi as registerDalApi } from '../../apps/dal/src/api';
+import { registerApi as registerIngestApi } from '../../apps/ingest/src/api';
 import { createServer } from '../../apps/server/src/app';
+import { registerApi as registerServerApi } from '../../apps/server/src/api';
 import { createDalInstance, type DalInstance, type Json } from '../setup/stack';
 
 /**
@@ -26,6 +30,31 @@ const operations = (spec: ReturnType<typeof load>) =>
     })),
   );
 
+/**
+ * Every route a service registers (HEAD left out). Swagger UI's own asset routes under `<docsPrefix>/static` are
+ * left out too; its page and the JSON / YAML document are part of the contract. The handlers are never called, so
+ * the dependencies can be placeholders.
+ */
+async function registeredRoutes(register: (app: FastifyInstance) => void, docsPrefix: string): Promise<string[]> {
+  const app = Fastify();
+  const routes = new Set<string>();
+  app.addHook('onRoute', (route) => {
+    if (route.url.startsWith(`${docsPrefix}/static`) || route.url === `${docsPrefix}/`) return;
+    for (const method of ([] as string[]).concat(route.method)) {
+      if (method !== 'HEAD') routes.add(`${method} ${route.url}`);
+    }
+  });
+  register(app);
+  await app.ready();
+  await app.close();
+  return [...routes].sort();
+}
+const documented = (file: string) =>
+  operations(load(file))
+    .map((o) => `${o.method} ${o.url}`)
+    .sort();
+const placeholder = {} as never;
+
 let dal: DalInstance;
 beforeAll(async () => {
   dal = await createDalInstance();
@@ -36,9 +65,9 @@ afterAll(async () => {
 
 describe('OpenAPI documents', () => {
   it.each([
-    ['public API', 'packages/api-contract/openapi.yaml', 12],
-    ['ingestion service', 'packages/ingest-contract/ingest.openapi.yaml', 5],
-    ['data access layer', 'packages/dal-contract/dal.openapi.yaml', 14],
+    ['public API', 'packages/api-contract/openapi.yaml', 15],
+    ['ingestion service', 'packages/ingest-contract/ingest.openapi.yaml', 8],
+    ['data access layer', 'packages/dal-contract/dal.openapi.yaml', 17],
   ])('%s: valid structure with unique operation ids', (_name, file, count) => {
     const spec = load(file);
     const ops = operations(spec);
@@ -99,5 +128,61 @@ describe('the code implements the documented operations', () => {
         exists: true,
       });
     }
+  });
+});
+
+/** Registers a service's endpoints on a bare Fastify instance, with placeholder dependencies. */
+const SERVICES = [
+  {
+    name: 'API server',
+    spec: 'packages/api-contract/openapi.yaml',
+    docs: '/docs',
+    register: (app: FastifyInstance) =>
+      registerServerApi(app, {
+        dal: placeholder,
+        ingest: placeholder,
+        limits: { maxHops: 50, defaultLimit: 1000 },
+        maxUploadBytes: 1000,
+      }),
+  },
+  {
+    name: 'ingestion service',
+    spec: 'packages/ingest-contract/ingest.openapi.yaml',
+    docs: '/ingest/docs',
+    register: (app: FastifyInstance) =>
+      registerIngestApi(app, { dal: placeholder, config: DEFAULT_CONFIG, maxUploadBytes: 1000 }),
+  },
+  {
+    name: 'data access layer',
+    spec: 'packages/dal-contract/dal.openapi.yaml',
+    docs: '/dal/docs',
+    register: (app: FastifyInstance) =>
+      registerDalApi(app, {
+        engine: placeholder,
+        cache: placeholder,
+        colors: placeholder,
+        sweeper: placeholder,
+        config: placeholder,
+      }),
+  },
+];
+
+describe.each(SERVICES)('$name', ({ spec, docs, register }) => {
+  it('documents every route of the code, and nothing else', async () => {
+    expect(await registeredRoutes(register, docs)).toEqual(documented(spec));
+  });
+
+  it(`serves its contract at ${docs}/json and ${docs}/yaml, and Swagger UI at ${docs}`, async () => {
+    const app = Fastify();
+    register(app);
+    const json = await app.inject(`${docs}/json`);
+    expect(json.statusCode).toBe(200);
+    expect(json.json()).toEqual(load(spec));
+    const yaml = await app.inject(`${docs}/yaml`);
+    expect(parse(yaml.body)).toEqual(load(spec));
+    const ui = await app.inject(docs);
+    expect(ui.statusCode).toBe(200);
+    expect(ui.headers['content-type']).toContain('text/html');
+    await app.close();
   });
 });

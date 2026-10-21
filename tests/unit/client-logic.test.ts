@@ -11,7 +11,7 @@ import {
   vulnerabilityColor,
 } from '../../apps/client/src/lib/severity';
 import { DEFAULT_COMBINE, blocksToTree, newBlock, treeToBlocks } from '../../apps/client/src/lib/blocks';
-import { buildSearch, parseUrlState, queryString } from '../../apps/client/src/lib/urlState';
+import { buildUrl, parseUrlState, queryString } from '../../apps/client/src/lib/urlState';
 import { fixture } from '../setup/fixtures';
 
 const parsed = parseGraph(fixture('security.json'));
@@ -157,7 +157,7 @@ describe('routes up to a node or an edge (highlight in the whole graph)', () => 
   });
 });
 
-describe('the query in the address bar', () => {
+describe('the address bar uses the routes of the API', () => {
   const query: SetTree = {
     op: 'leaf',
     builder: {
@@ -167,54 +167,70 @@ describe('the query in the address bar', () => {
     },
   };
 
-  it('is written as a readable URL query and read back unchanged', () => {
-    const search = buildSearch({
+  it('a route query is GET /graphs/:id/routes/query with the API parameters; UI state is in the fragment', () => {
+    const address = buildUrl({
       graph: 'abc123',
-      q: query,
-      mode: 'maximal',
-      hops: 10,
+      query,
+      routeMode: 'maximal',
+      maxHops: 10,
       limit: 500,
-      run: true,
+      includeSubRoutes: true,
       route: 3,
       view: 'graph',
     });
-    expect(search.startsWith('?graph=abc123&q=')).toBe(true);
-    expect(decodeURIComponent(search)).toContain('"position":"first"');
-    expect(parseUrlState(search)).toEqual({
+    const url = new URL(address, 'http://x');
+    expect(url.pathname).toBe('/graphs/abc123/routes/query');
+    expect([...url.searchParams.keys()].sort()).toEqual(['includeSubRoutes', 'limit', 'maxHops', 'q', 'routeMode']);
+    expect(JSON.parse(url.searchParams.get('q')!)).toEqual(query);
+    expect(url.hash).toBe('#route=3&view=graph');
+    expect(parseUrlState(address)).toEqual({
       graph: 'abc123',
-      q: query,
-      mode: 'maximal',
-      hops: 10,
+      query,
+      routeMode: 'maximal',
+      maxHops: 10,
       limit: 500,
-      run: true,
+      includeSubRoutes: true,
       route: 3,
       view: 'graph',
     });
   });
 
-  it('leaves out defaults and the result state when no result is shown', () => {
-    expect(buildSearch({})).toBe('');
-    expect(buildSearch({ graph: 'g', mode: 'all' })).toBe('?graph=g');
-    expect(buildSearch({ graph: 'g', route: 4, view: 'route' })).toBe('?graph=g'); // route/view only mean something with run=1
+  it('the query string is exactly the one the client sends to the API', () => {
+    const address = buildUrl({ graph: 'g', query, limit: 50, maxHops: 3, routeMode: 'maximal' });
+    expect(address).toBe(
+      `/graphs/g/routes/query?${queryString({ query, limit: 50, maxHops: 3, routeMode: 'maximal' })}`,
+    );
   });
 
-  it('survives special characters in raw Cypher', () => {
+  it('a graph without a query is /graphs/:id, and no graph is /', () => {
+    expect(buildUrl({})).toBe('/');
+    expect(buildUrl({ graph: 'g', routeMode: 'all', route: 4, view: 'route' })).toBe('/graphs/g');
+    expect(parseUrlState('/graphs/g')).toEqual({ graph: 'g' });
+    expect(parseUrlState('/')).toEqual({});
+  });
+
+  it('a query that was not run is marked as a draft, so opening it does not run it', () => {
+    const address = buildUrl({ graph: 'g', query, draft: true, route: 2 });
+    expect(address.endsWith('#draft')).toBe(true);
+    expect(parseUrlState(address)).toEqual({ graph: 'g', query, draft: true });
+  });
+
+  it('survives special characters in raw Cypher and in the graph id', () => {
     const raw: SetTree = { op: 'leaf', text: "MATCH (n:Node {graphId: $g}) WHERE n.name = 'a&b=c#d' RETURN n" };
-    expect(parseUrlState(buildSearch({ q: raw })).q).toEqual(raw);
+    expect(parseUrlState(buildUrl({ graph: 'a/b c', query: raw }))).toEqual({ graph: 'a/b c', query: raw });
   });
 
-  it('ignores a query that is not valid, instead of breaking the page', () => {
-    expect(parseUrlState('?graph=g&q=%7Bnot-json').q).toBeUndefined();
-    expect(parseUrlState('?q=' + encodeURIComponent('{"op":"leaf"}')).q).toBeUndefined(); // neither builder nor text
-    expect(parseUrlState('?q=' + encodeURIComponent('{"op":"leaf","text":"x","builder":{}}')).q).toBeUndefined();
-    expect(parseUrlState('?hops=abc&limit=-3&route=x&mode=weird&view=weird')).toEqual({});
-  });
-
-  it('builds the query string of the API request (GET /graphs/:id/routes/query)', () => {
-    const qs = new URLSearchParams(queryString({ query, limit: 50, maxHops: 3, routeMode: 'maximal' }));
-    expect(JSON.parse(qs.get('q')!)).toEqual(query);
-    expect([qs.get('limit'), qs.get('maxHops'), qs.get('routeMode')]).toEqual(['50', '3', 'maximal']);
-    expect([...new URLSearchParams(queryString({ query })).keys()]).toEqual(['q']);
+  it('ignores what is not valid, instead of breaking the page', () => {
+    const base = '/graphs/g/routes/query';
+    expect(parseUrlState(`${base}?q=%7Bnot-json`).query).toBeUndefined();
+    expect(parseUrlState(`${base}?q=` + encodeURIComponent('{"op":"leaf"}')).query).toBeUndefined();
+    expect(
+      parseUrlState(`${base}?q=` + encodeURIComponent('{"op":"leaf","text":"x","builder":{}}')).query,
+    ).toBeUndefined();
+    expect(parseUrlState(`${base}?maxHops=abc&limit=-3&routeMode=weird#route=x&view=weird`)).toEqual({ graph: 'g' });
+    // the old ?graph=… format and unknown paths are not routes of the API
+    expect(parseUrlState('/?graph=g&q=%7B%7D')).toEqual({});
+    expect(parseUrlState('/graphs/g/view')).toEqual({});
   });
 });
 

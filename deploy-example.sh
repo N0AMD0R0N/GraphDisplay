@@ -142,10 +142,12 @@ EOF
 
 # ---------------------------------------------------------------- deploy
 log "applying to context $KUBE_CONTEXT, namespace $NAMESPACE"
+# a deployment left from an earlier run keeps its pods: they are restarted below to pick up the rebuilt images
+existing=0
+kc -n "$NAMESPACE" get deployment/dal >/dev/null 2>&1 && existing=1
 DEPLOYED=1
 kc apply -k "$OVERLAY_DIR"
-# images are tagged :latest, so restart to pick up a rebuild
-if [ "${SKIP_BUILD:-}" != 1 ]; then
+if [ "$existing" = 1 ] && [ "${SKIP_BUILD:-}" != 1 ]; then
   kc -n "$NAMESPACE" rollout restart deployment/dal deployment/ingest deployment/server deployment/client >/dev/null
 fi
 
@@ -168,6 +170,7 @@ start_forward
 # already stored is kept as it is: graphs are identified by a hash of their content)
 ready=0
 for _ in $(seq 1 60); do
+  kill -0 "$FORWARD_PID" 2>/dev/null || start_forward
   if curl -fs "$URL/api/health" 2>/dev/null | grep -q '"status":"ok"' &&
     kc -n "$NAMESPACE" logs deployment/ingest 2>/dev/null | grep -q 'seeded /seed/graph.json: HTTP 20'; then
     ready=1
@@ -175,8 +178,12 @@ for _ in $(seq 1 60); do
   fi
   sleep 2
 done
-[ "$ready" = 1 ] ||
-  fail "the example graph did not show up at $URL (see: kubectl --context $KUBE_CONTEXT -n $NAMESPACE logs deployment/ingest)"
+if [ "$ready" != 1 ]; then
+  printf '\nhealth: %s\n' "$(curl -s "$URL/api/health" 2>&1)" >&2
+  printf 'ingestion service log (last lines):\n' >&2
+  kc -n "$NAMESPACE" logs deployment/ingest --tail=15 >&2 2>&1 || true
+  fail "the example graph did not show up at $URL"
+fi
 
 log "ready: $URL  (the example graph is seeded). Press Ctrl+C to stop and remove everything."
 

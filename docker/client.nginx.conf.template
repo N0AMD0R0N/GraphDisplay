@@ -15,6 +15,13 @@ server {
         proxy_read_timeout 120s;
     }
 
+    # the API documentation (Swagger UI and the OpenAPI document); the page loads its assets from /docs/
+    location /docs {
+        proxy_pass http://${SERVER_HOST}:${API_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
     location / {
         try_files $uri /index.html;
     }

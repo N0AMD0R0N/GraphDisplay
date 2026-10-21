@@ -40,20 +40,20 @@ export interface CompiledBlocks {
 }
 
 /**
- * The state that is mirrored in the browser's address bar, so a query can be bookmarked and shared:
- *   ?graph=<id>&q=<set tree as JSON>&mode=maximal&hops=10&limit=500&run=1&route=3&view=graph
- * `q` uses the same JSON as the `q` parameter of GET /graphs/:id/routes/query.
+ * What the address bar holds. The path and the query string are those of the API request
+ * (`/graphs/:id/routes/query?q=…`, see lib/urlState.ts); `draft`, `route` and `view` live in the fragment.
  */
 export interface UrlState {
   graph?: string;
-  q?: SetTree;
-  mode?: RouteMode;
-  /** Sub-routes (routes that lie inside another route of the result) are included. */
-  sub?: boolean;
-  hops?: number;
+  query?: SetTree;
+  routeMode?: RouteMode;
+  maxHops?: number;
   limit?: number;
-  /** A query result is displayed (the page re-runs the query when it is opened). */
-  run?: boolean;
+  /** Sub-routes (routes that lie inside another route of the result) are included. */
+  includeSubRoutes?: boolean;
+  /** The query is in the editor but was not run: opening the address restores it without running it. */
+  draft?: boolean;
+  /** Selected route and view of a displayed result. */
   route?: number;
   view?: 'route' | 'graph';
 }
