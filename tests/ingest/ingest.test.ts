@@ -14,7 +14,11 @@ beforeAll(async () => {
   dal = await createDalInstance();
 });
 afterAll(async () => {
-  for (const id of created) await dal.client.deleteGraph(id);
+  for (const id of created) {
+    const graph = await dal.client.getGraph(id);
+    // the seeding test pins its graph; a pinned graph is left alone (it may be the live seed on an external database)
+    if (graph && !graph.pinned) await dal.client.deleteGraph(id);
+  }
   await dal.close();
 });
 

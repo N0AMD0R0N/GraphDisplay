@@ -65,7 +65,7 @@ const Stepper = styled.div`
   gap: 6px;
   font-variant-numeric: tabular-nums;
   .count {
-    min-width: 92px;
+    min-width: 118px;
     text-align: center;
   }
   .flag {
@@ -246,7 +246,11 @@ export function TopBar() {
           ◀
         </Btn>
         <span className="count">
-          {ui.result ? (routes ? `${ui.selected + 1} / ${routes}` : '0 routes') : 'no query'}
+          {ui.result
+            ? routes
+              ? `${ui.selected + 1} / ${routes} ${routes === 1 ? 'route' : 'routes'}`
+              : '0 routes'
+            : 'no query'}
         </span>
         <Btn
           type="button"

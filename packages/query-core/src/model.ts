@@ -1,4 +1,4 @@
-import type { EdgeId, GraphEdge, GraphNode, GraphSchema, NodeId, Warning } from '@gd/api-contract';
+import type { EdgeId, GraphSchema, NodeId, Warning } from '@gd/api-contract';
 
 /** Language-agnostic query model (WorkPlan §2.2, §3.2). */
 
@@ -72,6 +72,11 @@ export interface QueryRequest {
   limit?: number;
   maxHops?: number;
   routeMode?: RouteMode;
+  /**
+   * By default a route that lies inside another route of the result (the same nodes in the same order, so the same
+   * edges) is left out. Set to true to get those sub-routes as well.
+   */
+  includeSubRoutes?: boolean;
 }
 
 export interface Route {
@@ -82,10 +87,12 @@ export interface Route {
   closesTo?: NodeId;
 }
 
+/**
+ * What a query returns: the routes (ordered node and edge ids) and how complete the list is. Nodes and edges are
+ * not part of it: consumers that need their properties ask for them by id (GET /graphs/:id/nodes and /edges).
+ */
 export interface QueryResult {
   routes: Route[];
-  nodes: Record<NodeId, GraphNode>;
-  edges: Record<EdgeId, GraphEdge>;
   total: number | null;
   truncated: boolean;
   warnings: Warning[];

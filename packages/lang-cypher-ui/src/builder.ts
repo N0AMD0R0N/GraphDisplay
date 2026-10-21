@@ -109,6 +109,68 @@ export function valueOptions(info: PropertyInfo | undefined): { name: string; va
   return null;
 }
 
+/** Operators whose value is typed as text (a list, a substring) even for properties with few values. */
+const TEXT_VALUE_OPERATORS: string[] = ['in', 'contains', 'startsWith', 'exists', 'notExists'];
+
+/** Which editor a rule's value gets: a dropdown of the observed values, or a text box. */
+export function valueEditorFor(schema: GraphSchema | undefined, field: string, operator: string): 'select' | 'text' {
+  if (field === LENGTH_FIELD || TEXT_VALUE_OPERATORS.includes(operator)) return 'text';
+  return valueOptions(propertyOf(schema, field)) ? 'select' : 'text';
+}
+
+/**
+ * The value a new rule starts with. A dropdown *displays* its first option, so that option has to be the value too:
+ * otherwise the rule looks complete but is reported as having no value.
+ */
+export function defaultValueFor(schema: GraphSchema | undefined, field: string, operator = 'eq'): string {
+  if (valueEditorFor(schema, field, operator) !== 'select') return '';
+  return valueOptions(propertyOf(schema, field))?.[0]?.value ?? '';
+}
+
+type RqbNode = RuleType | RuleGroupType;
+const isGroup = (n: RqbNode): n is RuleGroupType => 'rules' in n;
+
+function findRule(group: RuleGroupType | undefined, id: string | undefined): RuleType | undefined {
+  if (!group || !id) return undefined;
+  for (const child of group.rules) {
+    if (typeof child === 'string') continue;
+    if (isGroup(child)) {
+      const found = findRule(child, id);
+      if (found) return found;
+    } else if ((child as RuleType).id === id) return child as RuleType;
+  }
+  return undefined;
+}
+
+/**
+ * Keeps dropdown values consistent with what the dropdown shows. A rule whose value editor is a dropdown but whose
+ * value is empty, or is left over from a text editor after the operator changed (for example "contains" -> "="),
+ * gets the first option. Values the user picked or that come from a shared URL are never replaced.
+ */
+export function syncSelectValues(
+  query: RuleGroupType,
+  previous: RuleGroupType | undefined,
+  schema: GraphSchema | undefined,
+): RuleGroupType {
+  const fix = (node: RqbNode): RqbNode => {
+    if (isGroup(node)) {
+      const rules = node.rules.map((child) =>
+        typeof child === 'string' ? child : (fix(child) as RuleType | RuleGroupType),
+      );
+      return rules.every((r, i) => r === node.rules[i]) ? node : { ...node, rules };
+    }
+    const op = String(node.operator);
+    if (UNARY.includes(op as Operator) || valueEditorFor(schema, node.field, op) !== 'select') return node;
+    const options = valueOptions(propertyOf(schema, node.field)) ?? [];
+    if (options.length === 0 || options.some((o) => o.value === String(node.value))) return node;
+    const before = findRule(previous, (node as RqbRule).id);
+    const empty = node.value === '' || node.value === undefined || node.value === null;
+    const operatorChanged = before !== undefined && before.operator !== node.operator;
+    return empty || operatorChanged ? { ...node, value: options[0].value } : node;
+  };
+  return fix(query) as RuleGroupType;
+}
+
 // ------------------------------------------------------------- RQB <-> ConditionTree
 
 let idCounter = 0;

@@ -16,7 +16,19 @@ afterAll(async () => {
   await stack.close();
 });
 
-const run = (graphId: string, query: unknown, extra: object = {}) => stack.query(graphId, { query, ...extra });
+// GET /graphs/:id/nodes?id=a&id=b (or /edges)
+const getEntities = (graphId: string, kind: 'nodes' | 'edges', ids: string[]) =>
+  stack.api.request<Json>(
+    'GET',
+    `/graphs/${graphId}/${kind}?${ids.map((id) => `id=${encodeURIComponent(id)}`).join('&')}`,
+  );
+
+// most tests below count every sub-path of the graph, so they ask for the sub-routes explicitly;
+// the default (no sub-routes) is covered by its own tests (describe 'sub-routes')
+const run = (graphId: string, query: unknown, extra: object = {}) =>
+  stack.query(graphId, { query, includeSubRoutes: true, ...extra });
+// the default: routes that lie inside another route of the result are left out
+const runDefault = (graphId: string, query: unknown, extra: object = {}) => stack.query(graphId, { query, ...extra });
 const raw = (text: string) => ({ op: 'leaf', text });
 
 describe('route queries on the security fixture: the primary filters (WorkPlan ยง3.9)', () => {
@@ -123,6 +135,94 @@ describe('route queries on the security fixture: the primary filters (WorkPlan ย
   });
 });
 
+describe('sub-routes (routes that lie inside another route of the result)', () => {
+  const longest = 'web>api>worker>billing>ledger-db';
+
+  it('are left out by default: no returned route is part of another', async () => {
+    const res = await runDefault(security, leaf());
+    expect(res.status).toBe(200);
+    expect(names(res)).toEqual(
+      [longest, 'web>api>billing>ledger-db', 'web>api>reports>events', 'admin>reports>events', 'lonely'].sort(),
+    );
+    expect(res.body).toMatchObject({ total: 5, truncated: false });
+    // none is a contiguous part of another (same nodes, same order, hence the same edges)
+    const sequences = res.body.routes.map((r: Json) => `>${r.nodeIds.join('>')}>`);
+    for (const a of sequences) for (const b of sequences) if (a !== b) expect(b.includes(a)).toBe(false);
+  });
+
+  it('come back with includeSubRoutes=true (all 30 routes)', async () => {
+    const all = await stack.query(security, { query: leaf(), includeSubRoutes: true });
+    expect(all.body.total).toBe(30);
+    const off = await stack.api.request<Json>('GET', `/graphs/${security}/routes/query`, {
+      query: { q: JSON.stringify(leaf()), includeSubRoutes: 'false' },
+    });
+    expect(off.body.total).toBe(5);
+    const one = await stack.api.request<Json>('GET', `/graphs/${security}/routes/query`, {
+      query: { q: JSON.stringify(leaf()), includeSubRoutes: '1' },
+    });
+    expect(one.body.total).toBe(30);
+  });
+
+  it('rejects a value that is not a boolean', async () => {
+    const res = await stack.api.request<Json>('GET', `/graphs/${security}/routes/query`, {
+      query: { q: JSON.stringify(leaf()), includeSubRoutes: 'maybe' },
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it('only compares the routes of the result: a route stays when no route of the result contains it', async () => {
+    // routes of at most 2 nodes: the pairs, plus the node that is in no pair
+    const res = await runDefault(security, leaf({ type: 'length', max: 2 }));
+    expect(res.body.total).toBe(9);
+    expect(res.body.routes.filter((r: Json) => r.length === 1).map((r: Json) => r.nodeIds[0])).toEqual(['lonely']);
+    // routes starting in a public service: those starting at "api" or "admin" lie inside the ones starting at "web"
+    // (or admin>reports>events) and are left out
+    const publicStart = await runDefault(security, leaf(rule('first', 'publicExposed', 'eq', true)));
+    expect(names(publicStart)).toEqual(
+      [longest, 'web>api>billing>ledger-db', 'web>api>reports>events', 'admin>reports>events'].sort(),
+    );
+  });
+
+  it('works on the result of a set operation', async () => {
+    const sinkEnd = leaf(rule('last', '_isSink', 'eq', true));
+    const publicStart = leaf(rule('first', 'publicExposed', 'eq', true));
+    const both = await runDefault(security, { op: 'intersect', args: [publicStart, sinkEnd] });
+    expect(names(both)).toEqual(
+      [longest, 'web>api>billing>ledger-db', 'web>api>reports>events', 'admin>reports>events'].sort(),
+    );
+    const onlySinkEnd = await runDefault(security, { op: 'except', args: [sinkEnd, publicStart] });
+    // 5 routes end in a sink without starting in a public service; three of them lie inside the other two
+    expect(names(onlySinkEnd)).toEqual(['reports>events', 'worker>billing>ledger-db']);
+  });
+
+  it('keeps the cycle marker of the routes that remain', async () => {
+    const res = await runDefault(cyclic, leaf());
+    expect(names(res)).toEqual(['a>b>c>d', 'c>d>b', 'd>b>c', 'self'].sort());
+    const marks = Object.fromEntries(res.body.routes.map((r: Json) => [r.nodeIds.join('>'), r.closesTo]));
+    expect(marks).toEqual({ 'a>b>c>d': 'b', 'c>d>b': 'c', 'd>b>c': 'd', self: 'self' });
+  });
+
+  it('applies the limit to the routes that are left, not to the search', async () => {
+    // 30 routes in the graph, 5 without sub-routes: a limit of 3 cuts the 5, longest first
+    const res = await runDefault(security, leaf(), { limit: 3 });
+    expect(res.body.routes).toHaveLength(3);
+    expect(res.body).toMatchObject({ truncated: true, total: null });
+    expect(res.body.routes[0].nodeIds).toEqual(longest.split('>'));
+    // a limit of 5 is enough for all of them
+    const exact = await runDefault(security, leaf(), { limit: 5 });
+    expect(exact.body).toMatchObject({ total: 5, truncated: false });
+  });
+
+  it('on the sample file: the 487 routes shrink to the routes that are not part of another', async () => {
+    const res = await runDefault(sample, leaf());
+    expect(res.body.total).toBe(222);
+    // the same as the maximal routes (source to sink) of that graph
+    expect(res.body.routes.every((r: Json) => r.length >= 1)).toBe(true);
+    const maximal = await run(sample, leaf(), { routeMode: 'maximal' });
+    expect(names(res)).toEqual(names(maximal));
+  });
+});
+
 describe('route queries: other rules and modes', () => {
   it('filters by route length (node count)', async () => {
     expect((await run(security, leaf({ type: 'length', min: 5 }))).body.total).toBe(1);
@@ -192,7 +292,7 @@ describe('route queries: other rules and modes', () => {
     expect(exact.body).toMatchObject({ truncated: false, total: 30 });
   });
 
-  it('returns the route payload: ordered node and edge ids, full original properties, normalised edges', async () => {
+  it('returns the routes only: ordered node and edge ids, without the nodes and edges themselves', async () => {
     const res = await run(
       security,
       leaf(rule('first', 'name', 'eq', 'web'), rule('last', 'name', 'eq', 'ledger-db'), {
@@ -201,27 +301,104 @@ describe('route queries: other rules and modes', () => {
         max: 4,
       }),
     );
+    // external services get the list of routes and how complete it is: nothing else
+    expect(Object.keys(res.body).sort()).toEqual(['routes', 'total', 'truncated', 'warnings']);
     expect(res.body.routes).toHaveLength(1);
     const route = res.body.routes[0];
-    expect(route).toMatchObject({
+    expect(route).toEqual({
+      id: expect.stringMatching(/^[0-9a-f]{14}$/),
       nodeIds: ['web', 'api', 'billing', 'ledger-db'],
       edgeIds: ['web->api', 'api->billing', 'billing->ledger-db'],
       length: 4,
     });
-    expect(route.id).toMatch(/^[0-9a-f]{14}$/);
-    expect(route.closesTo).toBeUndefined();
+  });
+
+  it('the nodes and edges of a route are fetched separately, by the ids the route lists', async () => {
+    const res = await run(
+      security,
+      leaf(rule('first', 'name', 'eq', 'web'), rule('last', 'name', 'eq', 'ledger-db'), {
+        type: 'length',
+        min: 4,
+        max: 4,
+      }),
+    );
+    const [route] = res.body.routes;
+    const nodes = await getEntities(security, 'nodes', route.nodeIds);
+    expect(nodes.status).toBe(200);
+    expect(nodes.body.map((n: Json) => n.id)).toEqual(route.nodeIds); // in the order requested
     // full original properties (original casing, trimmed strings), plus the generated id
-    expect(res.body.nodes.web).toEqual({ id: 'web', name: 'Web', kind: 'Service', publicExposed: true });
-    expect(res.body.nodes.billing.vulnerabilities[0]).toEqual({
+    expect(nodes.body[0]).toEqual({ id: 'web', name: 'Web', kind: 'Service', publicExposed: true });
+    expect(nodes.body[2].vulnerabilities[0]).toEqual({
       file: 'billing/Pay.java',
       severity: 'HIGH',
       message: 'SQL concatenation',
       metadata: { cwe: 'CWE-89: SQL Injection' },
     });
-    expect(res.body.nodes['ledger-db'].metadata).toEqual({ cloud: 'AWS', engine: 'postgres' });
+    expect(nodes.body[3].metadata).toEqual({ cloud: 'AWS', engine: 'postgres' });
     // edges are normalised: one object per edge, not the grouped input form
-    expect(res.body.edges['api->billing']).toEqual({ id: 'api->billing', from: 'api', to: 'billing' });
-    expect(Object.keys(res.body.nodes).sort()).toEqual(['api', 'billing', 'ledger-db', 'web']);
+    const edges = await getEntities(security, 'edges', route.edgeIds);
+    expect(edges.body).toEqual([
+      { id: 'web->api', from: 'web', to: 'api' },
+      { id: 'api->billing', from: 'api', to: 'billing' },
+      { id: 'billing->ledger-db', from: 'billing', to: 'ledger-db' },
+    ]);
+  });
+});
+
+describe('GET /graphs/:id/nodes and /edges', () => {
+  it('leaves out unknown ids and ids of other graphs, and keeps the order requested', async () => {
+    const res = await getEntities(security, 'nodes', ['worker', 'no-such-node', 'ledger-db', 'web']);
+    expect(res.body.map((n: Json) => n.id)).toEqual(['worker', 'ledger-db', 'web']);
+    // 'a' belongs to the cyclic graph only
+    expect((await getEntities(security, 'nodes', ['a', 'web'])).body.map((n: Json) => n.id)).toEqual(['web']);
+    expect((await getEntities(security, 'edges', ['a->b', 'web->api'])).body.map((e: Json) => e.id)).toEqual([
+      'web->api',
+    ]);
+    expect((await getEntities(security, 'edges', ['nope->nope'])).body).toEqual([]);
+  });
+
+  it('ignores repeated ids and handles ids with special characters', async () => {
+    const res = await getEntities(security, 'nodes', ['web', 'web', 'api']);
+    expect(res.body.map((n: Json) => n.id)).toEqual(['web', 'api']);
+    expect((await getEntities(security, 'nodes', ['a&b=c#d', 'web'])).body.map((n: Json) => n.id)).toEqual(['web']);
+  });
+
+  it('returns the placeholder of an incomplete edge target', async () => {
+    const res = await getEntities(sample, 'nodes', ['assurance-service']);
+    expect(res.body).toEqual([
+      { id: 'assurance-service', name: 'assurance-service', kind: 'unknown', incomplete: true },
+    ]);
+  });
+
+  it('400 without ids or with too many; 404 for an unknown graph', async () => {
+    const none = await stack.api.request<Json>('GET', `/graphs/${security}/nodes`);
+    expect(none.status).toBe(400);
+    expect(none.body.error.code).toBe('MISSING_IDS');
+    const many = await getEntities(
+      security,
+      'nodes',
+      Array.from({ length: 1001 }, (_, i) => `n${i}`),
+    );
+    expect(many.status).toBe(400);
+    expect(many.body.error.code).toBe('TOO_MANY_IDS');
+    expect(
+      (
+        await getEntities(
+          security,
+          'nodes',
+          Array.from({ length: 1000 }, (_, i) => `n${i}`),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await getEntities('ffffffffffffffff', 'nodes', ['web'])).status).toBe(404);
+    expect((await getEntities('ffffffffffffffff', 'edges', ['a->b'])).status).toBe(404);
+  });
+
+  it('serves the nodes of a big result in a few requests (a result of many routes needs many ids)', async () => {
+    const all = await run(security, leaf());
+    const ids = [...new Set(all.body.routes.flatMap((r: Json) => r.nodeIds))] as string[];
+    const nodes = await getEntities(security, 'nodes', ids);
+    expect(nodes.body).toHaveLength(9);
   });
 });
 
@@ -342,7 +519,6 @@ describe('request validation', () => {
       { query: leaf(), limit: 10001 },
       { query: leaf(), maxHops: 101 },
       { query: leaf(rule('middle', 'x', 'eq', 1)) },
-      {},
     ]) {
       const res = await stack.query(security, body);
       expect(res.status).toBe(422);
@@ -350,10 +526,44 @@ describe('request validation', () => {
     }
   });
 
-  it('422 for rules without a value, 400 for a body that is not JSON', async () => {
+  it('422 for rules without a value', async () => {
     expect((await run(security, leaf(rule('first', 'name', 'eq')))).status).toBe(422);
-    const res = await stack.api.request<Json>('POST', `/graphs/${security}/routes/query`, { body: '{nope' });
-    expect(res.status).toBe(400);
+  });
+
+  it('400 when "q" is missing or is not JSON, with a clear code', async () => {
+    const missing = await stack.api.request<Json>('GET', `/graphs/${security}/routes/query`);
+    expect(missing.status).toBe(400);
+    expect(missing.body.error.code).toBe('MISSING_QUERY');
+    const broken = await stack.api.request<Json>('GET', `/graphs/${security}/routes/query`, { query: { q: '{nope' } });
+    expect(broken.status).toBe(400);
+    expect(broken.body.error.code).toBe('INVALID_QUERY_PARAM');
+  });
+
+  it('the old POST form is gone: queries are GET requests with the query in the URL', async () => {
+    const res = await stack.api.request<Json>('POST', `/graphs/${security}/routes/query`, { body: { query: leaf() } });
+    expect(res.status).toBe(404);
+  });
+
+  it('non-numeric limit / maxHops are rejected as invalid queries (422)', async () => {
+    const q = JSON.stringify(leaf());
+    for (const extra of [{ limit: 'many' }, { maxHops: 'deep' }, { routeMode: 'sideways' }]) {
+      const res = await stack.api.request<Json>('GET', `/graphs/${security}/routes/query`, { query: { q, ...extra } });
+      expect(res.status).toBe(422);
+    }
+  });
+
+  it('the result for a URL-encoded query equals the same query written by hand (special characters survive)', async () => {
+    const tree = {
+      op: 'leaf',
+      builder: group('and', rule('any', 'vulnerabilities.metadata.cwe', 'contains', 'cwe-89: sql injection')),
+    };
+    const q = encodeURIComponent(JSON.stringify(tree));
+    const res = await stack.api.request<Json>(
+      'GET',
+      `/graphs/${security}/routes/query?q=${q}&limit=500&maxHops=10&routeMode=all&includeSubRoutes=true`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(12);
   });
 
   it('404 for an unknown graph', async () => {
@@ -401,7 +611,7 @@ describe('route queries on the sample file (train-ticket-be.json)', () => {
       sample,
       leaf(rule('first', 'publicExposed', 'eq', true), rule('last', '_isSink', 'eq', true)),
     );
-    expect(empty.body).toMatchObject({ routes: [], nodes: {}, edges: {}, total: 0, truncated: false });
+    expect(empty.body).toEqual({ routes: [], total: 0, truncated: false, warnings: [] });
   });
 
   it('sinks and vulnerabilities', async () => {
@@ -418,7 +628,8 @@ describe('route queries on the sample file (train-ticket-be.json)', () => {
       leaf(rule('last', 'name', 'eq', 'assurance-service'), { type: 'length', min: 2, max: 2 }),
     );
     expect(res.body.total).toBe(2);
-    expect(res.body.nodes['assurance-service']).toEqual({
+    const nodes = await getEntities(sample, 'nodes', ['assurance-service']);
+    expect(nodes.body[0]).toEqual({
       id: 'assurance-service',
       name: 'assurance-service',
       kind: 'unknown',
@@ -428,5 +639,40 @@ describe('route queries on the sample file (train-ticket-be.json)', () => {
 
   it('answers the incomplete-edge route sets consistently', async () => {
     expect(await total(leaf(), { maxHops: 1, limit: 1000 })).toBe(145);
+  });
+});
+
+describe('long queries over real HTTP (the query is in the URL)', () => {
+  it('a 150-condition query (about 20 KB of URL) is accepted by the server', async () => {
+    const { createServer } = await import('../../apps/server/src/app');
+    const { IngestClient } = await import('@gd/ingest-contract');
+    const { injectTransport } = await import('@gd/api-contract');
+    const { createIngestApp } = await import('../../apps/ingest/src/app');
+    const { DEFAULT_CONFIG } = await import('@gd/graph-core');
+    const ingestApp = createIngestApp({ dal: stack.dalClient, config: DEFAULT_CONFIG, maxUploadBytes: 1000 });
+    await ingestApp.ready();
+    const server = createServer({
+      dal: stack.dalClient,
+      ingest: new IngestClient(injectTransport(ingestApp)),
+      limits: { maxHops: 50, defaultLimit: 1000 },
+      maxUploadBytes: 1000,
+    });
+    await server.listen({ port: 0, host: '127.0.0.1' });
+    try {
+      const address = server.server.address() as { port: number };
+      const rules = Array.from({ length: 150 }, (_, i) =>
+        rule('any', 'name', 'eq', i === 0 ? 'web' : `no-such-node-${i}`),
+      );
+      const q = encodeURIComponent(JSON.stringify({ op: 'leaf', builder: group('or', ...rules) }));
+      expect(q.length).toBeGreaterThan(15_000); // above Node's default 16 KB header limit once the headers are added
+      const res = await fetch(
+        `http://127.0.0.1:${address.port}/graphs/${security}/routes/query?q=${q}&includeSubRoutes=true`,
+      );
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { total: number }).total).toBe(9);
+    } finally {
+      await server.close();
+      await ingestApp.close();
+    }
   });
 });

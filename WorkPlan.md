@@ -146,7 +146,8 @@ API requests name the language explicitly: `{ "language": "cypher", "text": "…
 | A4.4 | Cycle marker | `closesTo` = the node in the route that the last node points back to. This applies to **any** node in the route, not only the first. | Generalises the base-plan rule (`A→B→C→D→A`) to `…D→B` | Proposed |
 | A4.6 | Query anchoring | `lang-cypher` builds each path pattern around its **most selective rule**, so Neo4j starts expanding from an indexed set of nodes instead of enumerating every path: a `first` rule anchors the start node, a `last` rule anchors the end node, and when only `any` rules exist the pattern goes through an anchor node `(a)-[*0..h]->(v)-[*0..h]->(b)` with `RETURN DISTINCT p`. Selectivity is estimated from the value counts in the stored schema. | Keeps rules like "has a vulnerability" in the standard-query range (§3.9) | Proposed |
 | A4.7 | Value normalisation | String values in builder rules and in raw-query parameters are trimmed and lower-cased before comparison, matching the stored queryable copies (§3.1). Raw Cypher **literals** aren't rewritten; the editor shows a lint hint when a string literal contains upper-case letters. | Without this, searching `CWE-89` finds nothing | Proposed |
-| A4.5 | Route mode | Default set of routes: **all sub-paths**: every simple path, including each prefix and suffix of longer routes | Many more results than maximal routes; combine a start rule with an end rule (sink or terminal) for full routes (§3.9). See §9-1. | Decided |
+| A4.8 | Sub-routes | By default a route that **lies inside another route of the result** (the same nodes in the same order, as a contiguous part, so the same edges) is **left out**: no returned route is part of another. `includeSubRoutes=true` (query parameter; `sub=1` in the UI's URL, a checkbox in the panel) returns them too. The comparison is among the routes of the result (a route stays when no route of the result contains it) and runs after the set operations. | The search therefore looks further than `limit`: it collects up to the API ceiling (10,000 routes, longest first), removes the sub-routes, and `limit` applies to what is left. If the search itself stopped at the ceiling the result is flagged `truncated` with an explanatory warning. See §12.3 for the cost. | Decided (requested after the first delivery) |
+| A4.5 | Route mode | The set of routes **searched**: **all sub-paths**: every simple path, including each prefix and suffix of longer routes. What is returned by default is narrowed by A4.8 | Many more results than maximal routes; combine a start rule with an end rule (sink or terminal) for full routes (§3.9). See §9-1. | Decided |
 | A5 | Set operations | API-level set tree `{op: union\|intersect\|except, args: [...]}`; leaves are builder trees or raw queries. Leaves run concurrently; results are combined by canonical route key (ordered node ids). | If a leaf was truncated, the result carries a `warnings` entry because the set result is approximate | Decided |
 | A5.1 | Query size | "Condition" = one builder leaf rule. Standard ≤ 20, heavy ≤ 70 (base plan). Hard cap 200 leaves → `422`. | Protects the server from extreme payloads | Proposed |
 | A6 | Ingestion validation | Valibot (generated from OpenAPI) for structure, plus semantic checks in `graph-core`. Runs in the **ingestion service** (A14). | Pipeline in §3.3 | Decided |
@@ -197,15 +198,13 @@ Computed by the ingestion service (§3.3 step 5) and stored on every node. Deriv
 | `_degree` | integer | In-degree + out-degree | View ranking (200-node cap) |
 | `` `vulnerabilities._maxSeverityRank` `` | integer or absent | Highest `SEVERITY_SCALE` rank among the node's vulnerabilities; absent when the node has none | "Severity ≥ X" filter |
 
-### 3.2 Result payload (Proposed)
+### 3.2 Result payload (Proposed, revised)
 
-Each route references nodes and edges by id, and full objects appear once per response. This keeps 10,000-route responses compact while still returning every original property.
+A query returns the **routes only**: lists of node and edge ids, plus how complete the list is. The nodes and edges themselves are not part of it, so external services receive just the routes; whoever needs their properties asks for them by id (`GET /graphs/:id/nodes?id=…`, `GET /graphs/:id/edges?id=…`, at most 1,000 ids per request, repeat the `id` parameter). The UI draws a route from its ids and fetches the node details (names, kinds, vulnerabilities) once per result, in chunks.
 
 ```ts
 interface QueryResult {
-  routes: Route[];                       // sorted per A4.3
-  nodes: Record<NodeId, GraphNode>;      // full original properties (from _raw) + id, incomplete flag
-  edges: Record<EdgeId, GraphEdge>;      // normalised { id, from, to, ...props }
+  routes: Route[];                       // sorted per A4.3, no route inside another unless includeSubRoutes (A4.8)
   total: number | null;                  // null when unknown due to truncation
   truncated: boolean;
   warnings: Warning[];
@@ -213,10 +212,12 @@ interface QueryResult {
 interface Route {
   id: string;                            // canonical key (hash of ordered node ids)
   nodeIds: NodeId[];                     // ordered, length ≥ 1
-  edgeIds: EdgeId[];                     // length = nodeIds.length - 1
+  edgeIds: EdgeId[];                     // length = nodeIds.length - 1, each "from->to"
   length: number;                        // node count
   closesTo?: NodeId;                     // cycle marker target (A4.4)
 }
+// GET /graphs/:id/nodes?id=a&id=b  ->  GraphNode[]  (all original properties + id, incomplete flag; request order)
+// GET /graphs/:id/edges?id=a->b    ->  GraphEdge[]  (normalised { id, from, to, ...props })
 ```
 
 ### 3.3 Ingestion pipeline (Proposed)
@@ -267,10 +268,11 @@ All keys are read and written only by the DAL.
 | `GET /graphs` | List graphs (id, name, status, counts) |
 | `GET /graphs/:id` | Graph metadata and warnings |
 | `DELETE /graphs/:id` | Remove the graph and its cache entries |
+| `GET /graphs/:id/nodes?id=…` · `GET /graphs/:id/edges?id=…` | Node and edge details by id (repeat `id`, at most 1,000), in the order requested; unknown ids are left out |
 | `GET /graphs/:id/schema` | Property schema + kind colours (feeds the builder and the renderer) |
 | `GET /graphs/:id/view?focus=&limit=200` | Ranked view, stubs, hidden-component summary, layout positions |
 | `POST /graphs/:id/view/expand` | Body `{ nodeId, mode: "neighbors" | "component", visible: [{id,x,y}] }` → extended view for a "+N" stub or a hidden component (existing nodes keep their positions) |
-| `POST /graphs/:id/routes/query` | Body `{ query: SetTree, limit?, maxHops? }` → `QueryResult` |
+| `GET /graphs/:id/routes/query?q=<SetTree as JSON>&limit=&maxHops=&routeMode=&includeSubRoutes=` | The query is part of the URL (bookmarkable, shareable) → `QueryResult`. Missing or non-JSON `q` → `400`. |
 | *(reserved)* `POST /graphs/:id/links` | Future: connect segmented graphs; declared in OpenAPI, returns `501` |
 
 ### 3.7 Data Access Layer (DAL) service (Proposed design)
@@ -371,8 +373,8 @@ RETURN p
 |---|---|---|---|---|
 | C1 | Screen layout | Collapsible left drawer (query panel: Builder / Raw tabs). When collapsed, the graph takes the full viewport. A slim top bar holds the graph picker, view-mode toggle and route stepper. | — | Decided |
 | C2 | Nodes | Plain coloured circle (kind colour) + label | — | Decided |
-| C2.1 | Node states | Incomplete/placeholder: dashed grey outline. Public exposure and vulnerabilities: shown in the tooltip only (keeps nodes simple). | The base plan requires incomplete nodes to be visibly distinct | Proposed |
-| C3 | Edges | Smoothstep with arrowheads. Route edges are thicker, use the accent colour, and have an animated dash in highlight mode. | Highlighting never navigates or redirects | Decided |
+| C2.1 | Node states | Incomplete/placeholder: dashed grey outline. Vulnerabilities: a thick **warm border with a small blur glow**, from light orange (lowest severity of the scale) to pinkish red (highest), so it differs from the crisp accent ring of a clicked node (C6.2). Public exposure: tooltip only. | The base plan requires incomplete nodes to be visibly distinct | Proposed |
+| C3 | Edges | Smoothstep with arrowheads. Route edges are thicker, use the accent colour, and have an animated dash in highlight mode. The accent is **cyan** (`#0891b2`): pink to red is the vulnerability severity scale (C2.1), so the colour of routes, paths and animated edges must not collide with it. | Highlighting never navigates or redirects | Decided |
 | C4 | Cycle indicator | Ghost marker node: smaller hollow dashed circle labelled `↺ <target>` in the target's kind colour. Clicking it pans to and pulses the real node. | — | Decided |
 | C5 | Route selector | Top-bar stepper `◀ 3 / 128 ▶` (← / → keys) with a "(truncated)" flag, plus an expandable, virtualised route list (length, start → end, kind colour strip) | — | Decided |
 | C6 | Highlight | Whole-graph mode dims non-route elements to ~15% opacity. A view-mode toggle switches between **Route only** and **Whole graph + highlight**. | — | Decided |
@@ -380,6 +382,12 @@ RETURN p
 | C7 | Overflow | "+N" stub node attached by a dashed edge. A corner chip ("N hidden components") opens a list of the disconnected groups that aren't shown. | — | Decided |
 | C8 | Node details | `NodeToolbar` card with all original properties and a collapsible vulnerability list. Opens on click and stays open. One open at a time. Closes on pane click, `Esc`, or another node's click. | — | Decided |
 | C9 | States | Empty: centred overlay message on the dimmed graph, with a query summary. Loading: thin progress bar, the canvas stays interactive. Query errors: inline in the builder rule or the editor lint gutter (line/column). Graph warnings: top-bar chip → list. | — | Decided |
+| C6.2 | Click highlight | In the whole-graph view, clicking a **node** highlights all routes leading up to it (every node from which it can be reached, and the edges on those routes); clicking an **edge** highlights only the routes that end at the node it points to **and contain that edge** (routes to that node through its other incoming edges stay dimmed; a route never visits the end node twice). Everything else is dimmed. A chip at the bottom names the selection and has a Clear button; clicking empty space or pressing Esc also clears it. The highlight is computed from the displayed graph (hidden parts are indicated by the "+N" bubbles of highlighted nodes). It replaces the selected-route highlight until cleared. | Added after the first delivery | Decided |
+| C13 | Route markers and selector | The selector reads `n / total routes`. In the route list the **text of every route entry** (e.g. "food-service → station-service") has the colour of its **highest vulnerability severity** (the colours of the vulnerable-node borders, C2.1; bold for vulnerable routes), **black** when none of its nodes has a vulnerability; the tooltip names the severity and the header explains the marker. | Added after the first delivery | Decided |
+| C15 | Dropdown values in the builder | A value dropdown starts with the option it displays: a new rule on a property with few observed values (for example `kind`) holds its first option (`service`) as its value, so it counts as complete. If an operator change swaps a text box for a dropdown (for example "contains" → "="), the first option is registered as well. Values the user picked, or that come from a shared URL, are never replaced; number fields and the route length stay empty until filled in. | Fix after the first delivery | Decided |
+| C14 | Combining queries | A query added to the panel is joined to the ones above by **intersection** by default (routes matching both); the operator can be changed to union or difference. | Added after the first delivery | Decided |
+| C11 | Query in the address bar | The page URL mirrors the editor: `?graph=<id>&q=<set tree JSON>&mode=&hops=&limit=&run=1&route=<n>&view=`. It follows the editor while typing (builder rules and Cypher text), and opening such a URL restores the editor and, with `run=1`, runs the query and selects the route. `q` is the same JSON the API takes in `GET /graphs/:id/routes/query`. Queries that nest to the right (possible only through the API) cannot be shown in the editor and are ignored. | Added after the first delivery | Decided |
+| C12 | Full graph button | A "Full graph" button next to "Collapse" in the query panel drops the query result and every highlight and returns to the whole graph (the query stays in the editor and in the URL). | Added after the first delivery | Decided |
 | C10 | Theme | Light only. All colours come from theme tokens, so a dark theme can be added later with no component changes. | — | Decided |
 
 ---
@@ -655,7 +663,7 @@ All phases P0–P9 are implemented. The application runs under Docker Compose (`
 
 | What | Result |
 |---|---|
-| `npm test` (type-check, then Jest with Testcontainers for Neo4j and Redis) | 13 suites, 226 tests passing; writes `reports/test-report-<timestamp>.json` |
+| `npm test` (type-check, then Jest with Testcontainers for Neo4j and Redis) | 15 suites, 294 tests passing; writes `reports/test-report-<timestamp>.json` |
 | `npm run test:bail` | Stops at the first failing test, skips the rest, prints the failure reason, exits non-zero (checked with a deliberately failing probe test) |
 | `npm run lint`, type-check | Clean, default ESLint recommended rules |
 | Performance test (1,000 nodes / 10,000 edges) | Timings recorded in `reports/perf-<timestamp>.json`, not gated (see §12.3) |
@@ -677,6 +685,7 @@ All phases P0–P9 are implemented. The application runs under Docker Compose (`
 | B6 attribution | (not specified) | The React Flow attribution is shown | Hiding it requires a Pro subscription |
 | B6 dragging | (not specified) | Node dragging is disabled | The layout is server-owned and consistent across clients (B5) |
 | B5.1 expansion layout | Elk interactive mode with fixed positions | Existing nodes keep the positions the client sends; the new nodes are laid out as one block to the right of them | Guarantees no overlap and unchanged existing nodes |
+| A9 query endpoint | `POST /graphs/:id/routes/query` with a body | **`GET`** with the query in the URL (`q`, `limit`, `maxHops`, `routeMode`). The server accepts up to 64 KB of headers and the UI's nginx up to 64 KB of request line, so even a 200-condition query (about 25 KB) fits. | Requested after the first delivery: the query is visible and shareable as a URL |
 | A11 / seeding | (not specified) | `SEED_NAME` names the seeded graph (default: the file name) | The mounted file is called `graph.json` |
 | A11 graph id | Content hash | Hash of the normalised graph **and only** the settings that change derived properties (`SINK_KINDS`, `SEVERITY_SCALE`). Ports, URLs and seed settings do not change it. | A regression found during manual verification: hashing the whole service config created a new graph on every config change |
 | Pinned graphs | Seed is pinned | Storing an existing graph with `pinned: true` also **pins it** and removes its expiry | Otherwise a seed that already existed unpinned would expire |
@@ -696,6 +705,8 @@ Measured on the development machine against the 1,000-node / 10,000-edge synthet
 | Schema, expand a "+N" stub | about 3 ms, about 60–110 ms |
 
 The base plan's targets (100 ms standard, 500 ms heavy) are met for **anchored** queries on small result sets and **not** met for broad unanchored ones, because the number of simple paths grows exponentially with the hop limit. The guards (`maxHops`, route limit, the 5 s transaction limit → `504`) keep such queries from running away, and the schema-based anchoring (A4.6) keeps selective ones fast. Closing the gap for broad queries would need precomputed route indexes, which the plan deliberately left out of this iteration.
+
+**After A4.8 (sub-routes removed by default).** Anchored queries are unchanged (about 130 ms median for the standard query, about 200 ms for the heavy one). The unanchored operand of the set-operation test went from about 2.3–2.8 s to about 3.4 s, because the search now collects up to 10,000 routes before removing sub-routes; it stays below the 5 s time limit. The filter itself handles 10,000 routes of up to 40 nodes in about 40 ms.
 
 ### 12.4 Known limitations
 

@@ -3,7 +3,17 @@ import styled from 'styled-components';
 import { QueryBuilder, type RuleGroupType } from 'react-querybuilder';
 import 'react-querybuilder/dist/query-builder.css';
 import type { GraphSchema } from '@gd/api-contract';
-import { LENGTH_FIELD, LENGTH_OPERATORS, buildFields, operatorsFor, propertyOf, valueOptions } from './builder';
+import {
+  LENGTH_FIELD,
+  LENGTH_OPERATORS,
+  buildFields,
+  defaultValueFor,
+  operatorsFor,
+  propertyOf,
+  syncSelectValues,
+  valueEditorFor,
+  valueOptions,
+} from './builder';
 
 const Wrap = styled.div`
   font-size: 13px;
@@ -62,21 +72,17 @@ export function QueryBuilderField({ schema, query, onChange }: QueryBuilderField
       <QueryBuilder
         fields={fields}
         query={query}
-        onQueryChange={onChange}
+        onQueryChange={(next) => onChange(syncSelectValues(next, query, schema))}
         showCloneButtons={false}
         showNotToggle={false}
         resetOnFieldChange
         resetOnOperatorChange={false}
         controlClassnames={{ queryBuilder: 'queryBuilder' }}
         getOperators={(field) => (field === LENGTH_FIELD ? LENGTH_OPERATORS : operatorsFor(propertyOf(schema, field)))}
-        getValueEditorType={(field, operator) => {
-          if (field === LENGTH_FIELD || ['exists', 'notExists', 'in', 'contains', 'startsWith'].includes(operator))
-            return 'text';
-          return valueOptions(propertyOf(schema, field)) ? 'select' : 'text';
-        }}
+        getValueEditorType={(field, operator) => valueEditorFor(schema, field, operator)}
         getValues={(field) => valueOptions(propertyOf(schema, field)) ?? []}
         getDefaultOperator="eq"
-        getDefaultValue={() => ''}
+        getDefaultValue={(rule) => defaultValueFor(schema, rule.field, String(rule.operator))}
       />
     </Wrap>
   );

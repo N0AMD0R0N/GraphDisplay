@@ -63,3 +63,68 @@ export function toRoute(row: RouteRow): Route {
 export function sortRows(rows: RouteRow[]): RouteRow[] {
   return [...rows].sort(compareRoutes);
 }
+
+const POSITION_SPAN = 4096;
+
+/**
+ * Leaves out every route that lies inside another route of the list: the same nodes in the same order (and so the
+ * same edges), as a contiguous part of a longer route. What remains does not overlap in that sense: no route is a part
+ * of another. The result is sorted longest first.
+ *
+ * Routes are visited longest first; for each one the node that occurs in the fewest kept routes is looked up, so only
+ * a few candidate places are compared.
+ */
+export function dropSubRoutes(rows: RouteRow[]): RouteRow[] {
+  const kept: RouteRow[] = [];
+  /** node id -> (index of a kept route) * POSITION_SPAN + position of the node in it */
+  const occurrences = new Map<string, number[]>();
+
+  for (const row of sortRows(rows)) {
+    const ids = row.nodeIds;
+    let rarest = -1;
+    let rarestList: number[] | undefined;
+    let absent = false;
+    for (let j = 0; j < ids.length; j++) {
+      const list = occurrences.get(ids[j]);
+      if (!list) {
+        absent = true; // a node that no kept route contains: this route cannot lie inside one
+        break;
+      }
+      if (!rarestList || list.length < rarestList.length) {
+        rarest = j;
+        rarestList = list;
+      }
+    }
+
+    let inside = false;
+    if (!absent && rarestList) {
+      for (const packed of rarestList) {
+        const target = kept[Math.floor(packed / POSITION_SPAN)].nodeIds;
+        const start = (packed % POSITION_SPAN) - rarest;
+        if (start < 0 || start + ids.length > target.length) continue;
+        let same = true;
+        for (let t = 0; t < ids.length; t++) {
+          if (target[start + t] !== ids[t]) {
+            same = false;
+            break;
+          }
+        }
+        if (same) {
+          inside = true;
+          break;
+        }
+      }
+    }
+    if (inside) continue;
+
+    const index = kept.length;
+    kept.push(row);
+    ids.forEach((id, position) => {
+      const list = occurrences.get(id);
+      const packed = index * POSITION_SPAN + position;
+      if (list) list.push(packed);
+      else occurrences.set(id, [packed]);
+    });
+  }
+  return kept;
+}

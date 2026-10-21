@@ -114,9 +114,32 @@ export async function createStack(
       if (![201, 207].includes(res.status)) throw new Error(`upload failed: ${res.status} ${JSON.stringify(res.body)}`);
       return res.body.graphId as string;
     },
-    query: (graphId, body) => api.request<Json>('POST', `/graphs/${graphId}/routes/query`, { body }),
+    // the query travels in the URL: GET /graphs/:id/routes/query?q=<json>&limit=&maxHops=&routeMode=
+    query: (graphId, body) => {
+      const b = (body ?? {}) as {
+        query?: unknown;
+        limit?: number;
+        maxHops?: number;
+        routeMode?: string;
+        includeSubRoutes?: boolean;
+      };
+      return api.request<Json>('GET', `/graphs/${graphId}/routes/query`, {
+        query: {
+          q: b.query === undefined ? undefined : JSON.stringify(b.query),
+          limit: b.limit,
+          maxHops: b.maxHops,
+          routeMode: b.routeMode,
+          includeSubRoutes: b.includeSubRoutes,
+        },
+      });
+    },
     async close() {
-      for (const id of graphIds) await dal.client.deleteGraph(id).catch(() => undefined);
+      // Graph ids are content hashes: a test that uploads the sample file shares its id with the seeded (pinned) graph
+      // when the tests run against a live database. Pinned graphs are never removed by the tests.
+      for (const id of graphIds) {
+        const graph = await dal.client.getGraph(id).catch(() => null);
+        if (graph && !graph.pinned) await dal.client.deleteGraph(id).catch(() => undefined);
+      }
       await server.close();
       await ingestApp.close();
       await dal.close();

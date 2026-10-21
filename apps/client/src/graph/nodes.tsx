@@ -16,6 +16,8 @@ export type KindData = {
   dimmed: boolean;
   open: boolean;
   pulsing: boolean;
+  /** Border colour of a node with vulnerabilities: light orange (low) to pinkish red (critical). */
+  severityColor?: string;
   node: GraphNode;
 };
 export type GhostData = { target: string; color: string; dimmed: boolean };
@@ -36,13 +38,20 @@ const Box = styled.div<{ $dimmed: boolean }>`
   transition: opacity 0.15s;
 `;
 
-const Dot = styled.div<{ $color: string; $incomplete: boolean; $open: boolean; $pulse: boolean }>`
+const Dot = styled.div<{ $color: string; $incomplete: boolean; $open: boolean; $pulse: boolean; $warm?: string }>`
   width: ${DOT}px;
   height: ${DOT}px;
   margin-top: 4px;
   border-radius: 50%;
   background: ${(p) => (p.$incomplete ? p.theme.colors.surface : p.$color)};
   border: 2px ${(p) => (p.$incomplete ? 'dashed' : 'solid')} ${(p) => (p.$incomplete ? '#8d949e' : 'rgba(0,0,0,.18)')};
+  ${(p) =>
+    p.$warm &&
+    css`
+      border: 3px solid ${p.$warm};
+      /* a soft glow, so the vulnerability marker differs from the crisp ring of a clicked node */
+      box-shadow: 0 0 5px 1px ${p.$warm}b0;
+    `}
   ${(p) =>
     p.$open &&
     css`
@@ -78,9 +87,15 @@ const handleStyle = (side: 'left' | 'right') => ({
 
 export const KindNode = memo(function KindNode({ data }: NodeProps<KindFlowNode>) {
   return (
-    <Box $dimmed={data.dimmed} title={data.label}>
+    <Box $dimmed={data.dimmed} title={data.severityColor ? `${data.label} (has vulnerabilities)` : data.label}>
       <Handle type="target" position={Position.Left} style={handleStyle('left')} isConnectable={false} />
-      <Dot $color={data.color} $incomplete={data.incomplete} $open={data.open} $pulse={data.pulsing} />
+      <Dot
+        $color={data.color}
+        $incomplete={data.incomplete}
+        $open={data.open}
+        $pulse={data.pulsing}
+        $warm={data.severityColor}
+      />
       <Label>{data.label}</Label>
       <Handle type="source" position={Position.Right} style={handleStyle('right')} isConnectable={false} />
       <NodeToolbar isVisible={data.open} position={Position.Top} offset={10}>

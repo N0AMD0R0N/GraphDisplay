@@ -9,8 +9,8 @@ export const lightTheme: DefaultTheme = {
     border: '#d5dbe5',
     text: '#1d2433',
     muted: '#6a7488',
-    accent: '#d6336c',
-    accentSoft: '#fde7ef',
+    accent: '#0891b2', // cyan: pink and red are reserved for vulnerability severity
+    accentSoft: '#e0f7fb',
     danger: '#c0392b',
     dangerSoft: '#fdeceb',
     warning: '#b7791f',
@@ -33,5 +33,5 @@ export const GlobalStyle = createGlobalStyle`
   button, select, input, textarea { font: inherit; color: inherit; }
   .react-flow__edge.dimmed { opacity: ${(p) => p.theme.colors.dim}; }
   @keyframes gd-progress { 0% { left: -35%; } 100% { left: 100%; } }
-  @keyframes gd-pulse { 0% { box-shadow: 0 0 0 0 rgba(214,51,108,.7); } 100% { box-shadow: 0 0 0 16px rgba(214,51,108,0); } }
+  @keyframes gd-pulse { 0% { box-shadow: 0 0 0 0 rgba(8,145,178,.7); } 100% { box-shadow: 0 0 0 16px rgba(8,145,178,0); } }
 `;

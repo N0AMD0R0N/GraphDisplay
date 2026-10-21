@@ -36,7 +36,7 @@ afterAll(async () => {
 
 describe('OpenAPI documents', () => {
   it.each([
-    ['public API', 'packages/api-contract/openapi.yaml', 10],
+    ['public API', 'packages/api-contract/openapi.yaml', 12],
     ['ingestion service', 'packages/ingest-contract/ingest.openapi.yaml', 5],
     ['data access layer', 'packages/dal-contract/dal.openapi.yaml', 14],
   ])('%s: valid structure with unique operation ids', (_name, file, count) => {

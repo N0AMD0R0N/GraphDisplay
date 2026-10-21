@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import styled from 'styled-components';
-import type { RuleGroupType } from 'react-querybuilder';
-import type { QueryRequest, RouteMode, SetOperator, SetTree } from '@gd/query-core';
+import type { QueryRequest, RouteMode, SetOperator } from '@gd/query-core';
 import {
   QueryBuilderField,
   appendRules,
@@ -18,6 +17,8 @@ import {
 } from '@gd/lang-cypher-ui';
 import { ApiRequestError, api, useSchema } from '../api';
 import { useUI } from '../store';
+import { blocksToTree, newBlock, treeToBlocks, type Block } from '../query/blocks';
+import { readUrl, writeUrl } from '../urlSync';
 
 const LANG = languagesUI.cypher;
 
@@ -151,23 +152,6 @@ const Opts = styled.div`
   }
 `;
 
-interface Block {
-  id: number;
-  mode: 'builder' | 'raw';
-  rqb: RuleGroupType;
-  text: string;
-  op: SetOperator;
-}
-
-let nextBlock = 1;
-const newBlock = (op: SetOperator = 'union'): Block => ({
-  id: nextBlock++,
-  mode: 'builder',
-  rqb: emptyRqb(),
-  text: LANG.defaultText,
-  op,
-});
-
 const opLabel = (op: SetOperator, name: string): string =>
   ({
     union: `Union: routes above OR in query ${name}`,
@@ -178,43 +162,61 @@ const OPERATORS: SetOperator[] = ['union', 'intersect', 'except'];
 const letter = (i: number) => String.fromCharCode(65 + i);
 
 export function QueryDrawer() {
-  const { graphId, drawerOpen, toggleDrawer, setResult, result } = useUI();
+  const { graphId, drawerOpen, toggleDrawer, setResult, showFullGraph, result } = useUI();
   const schema = useSchema(graphId).data;
-  const [blocks, setBlocks] = useState<Block[]>(() => [newBlock()]);
-  const [routeMode, setRouteMode] = useState<RouteMode>('all');
-  const [maxHops, setMaxHops] = useState('');
-  const [limit, setLimit] = useState('');
+  // the editor starts from the query in the address bar (a bookmarked or shared URL), if there is one
+  const [initial] = useState(readUrl);
+  const [blocks, setBlocks] = useState<Block[]>(
+    () => (initial.q ? treeToBlocks(initial.q, LANG.defaultText) : null) ?? [newBlock(LANG.defaultText)],
+  );
+  const [routeMode, setRouteMode] = useState<RouteMode>(initial.mode ?? 'all');
+  const [maxHops, setMaxHops] = useState(initial.hops ? String(initial.hops) : '');
+  const [limit, setLimit] = useState(initial.limit ? String(initial.limit) : '');
+  const [includeSub, setIncludeSub] = useState(initial.sub === true);
 
   const update = (id: number, patch: Partial<Block>) =>
     setBlocks((bs) => bs.map((b) => (b.id === id ? { ...b, ...patch } : b)));
   const presets = useMemo(() => basePresets(schema), [schema]);
 
-  const compiled = useMemo(() => {
-    const errors: string[] = [];
-    const leaves: SetTree[] = blocks.map((b, i) => {
-      if (b.mode === 'raw') {
-        if (!b.text.trim()) errors.push(`Query ${letter(i)}: the Cypher text is empty`);
-        return { op: 'leaf', text: b.text };
-      }
-      const { tree, errors: e } = rqbToTree(b.rqb, schema);
-      errors.push(...e.map((m) => (blocks.length > 1 ? `Query ${letter(i)}: ${m}` : m)));
-      return { op: 'leaf', builder: tree };
+  const compiled = useMemo(() => blocksToTree(blocks, schema)!, [blocks, schema]);
+
+  // The address bar follows the editor: the query is always visible in the URL (and can be bookmarked or shared)
+  useEffect(() => {
+    if (!schema) return; // values are typed by the schema: wait for it, so a restored query is not rewritten
+    writeUrl({
+      q: blocksToTree(blocks, schema, true)?.query,
+      mode: routeMode === 'maximal' ? 'maximal' : undefined,
+      hops: Number(maxHops) || undefined,
+      limit: Number(limit) || undefined,
+      sub: includeSub || undefined,
     });
-    const query = leaves
-      .slice(1)
-      .reduce<SetTree>((acc, leaf, i) => ({ op: blocks[i + 1].op, args: [acc, leaf] }), leaves[0]);
-    return { query, errors };
-  }, [blocks, schema]);
+  }, [blocks, schema, routeMode, maxHops, limit, includeSub]);
 
   const run = useMutation({
     mutationFn: () => {
       const body: QueryRequest = { query: compiled.query, routeMode };
       if (maxHops) body.maxHops = Number(maxHops);
       if (limit) body.limit = Number(limit);
+      if (includeSub) body.includeSubRoutes = true;
       return api.query(graphId!, body);
     },
     onSuccess: (data) => setResult(data),
   });
+
+  // a URL that was opened with a result on screen runs its query again
+  const autoRun = useRef(initial.run === true && initial.q !== undefined);
+  useEffect(() => {
+    if (!autoRun.current || !graphId || !schema) return;
+    autoRun.current = false;
+    run.mutate(undefined, {
+      onSuccess: (data) => {
+        const ui = useUI.getState();
+        if (initial.route !== undefined && initial.route < data.routes.length) ui.selectRoute(initial.route);
+        if (initial.view === 'graph') ui.setViewMode('graph');
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphId, schema]);
 
   const applyPreset = (blockId: number, value: string) => {
     if (!value) return;
@@ -248,14 +250,25 @@ export function QueryDrawer() {
       <Inner>
         <Head>
           <h2>Query</h2>
-          <Btn
-            type="button"
-            onClick={toggleDrawer}
-            title="Collapse the panel for a bigger graph"
-            aria-label="Collapse query panel"
-          >
-            « Collapse
-          </Btn>
+          <span style={{ display: 'flex', gap: 6 }}>
+            <Btn
+              type="button"
+              onClick={showFullGraph}
+              disabled={!result}
+              title="Back to the whole graph (the query stays in the editor)"
+              aria-label="Show the full graph"
+            >
+              Full graph
+            </Btn>
+            <Btn
+              type="button"
+              onClick={toggleDrawer}
+              title="Collapse the panel for a bigger graph"
+              aria-label="Collapse query panel"
+            >
+              « Collapse
+            </Btn>
+          </span>
         </Head>
         <Scroll>
           {blocks.map((b, i) => (
@@ -351,7 +364,11 @@ export function QueryDrawer() {
               </BlockCard>
             </div>
           ))}
-          <Btn type="button" onClick={() => setBlocks((bs) => [...bs, newBlock()])} disabled={blocks.length >= 6}>
+          <Btn
+            type="button"
+            onClick={() => setBlocks((bs) => [...bs, newBlock(LANG.defaultText)])}
+            disabled={blocks.length >= 6}
+          >
             + Add a query to combine
           </Btn>
         </Scroll>
@@ -375,6 +392,10 @@ export function QueryDrawer() {
                 value={maxHops}
                 onChange={(e) => setMaxHops(e.target.value)}
               />
+            </label>
+            <label title="Routes that lie inside another route of the result (the same nodes in the same order) are left out unless this is checked">
+              <input type="checkbox" checked={includeSub} onChange={(e) => setIncludeSub(e.target.checked)} />
+              include sub-routes
             </label>
             <label>
               limit

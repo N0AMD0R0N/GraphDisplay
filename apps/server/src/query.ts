@@ -1,9 +1,10 @@
-import { ServiceCallError, type GraphEdge, type GraphNode, type GraphSchema, type Warning } from '@gd/api-contract';
+import { DEFAULTS, ServiceCallError, type GraphSchema, type Warning } from '@gd/api-contract';
 import type { DalClient } from '@gd/dal-contract';
 import type { IngestClient } from '@gd/ingest-contract';
 import {
   QueryError,
   combineRows,
+  dropSubRoutes,
   parseQueryRequest,
   sortRows,
   toRoute,
@@ -63,7 +64,11 @@ export async function runQuery(deps: QueryDeps, graphId: string, body: unknown):
 
   const limit = req.limit ?? deps.limits.defaultLimit;
   const maxHops = req.maxHops ?? deps.limits.maxHops;
-  const ctx: CompileContext = { graphId, maxHops, limit, routeMode: req.routeMode ?? 'all', schema };
+  // Sub-routes are removed after the search, so the search has to look further than `limit` routes: it stops at the
+  // highest limit the API allows and `limit` then applies to what is left.
+  const includeSubRoutes = req.includeSubRoutes ?? false;
+  const fetchLimit = includeSubRoutes ? limit : Math.max(limit, DEFAULTS.limitCeiling);
+  const ctx: CompileContext = { graphId, maxHops, limit: fetchLimit, routeMode: req.routeMode ?? 'all', schema };
   const warnings: Warning[] = [];
 
   const evaluate = async (tree: SetTree): Promise<Evaluated> => {
@@ -71,7 +76,7 @@ export async function runQuery(deps: QueryDeps, graphId: string, body: unknown):
       const lang = deps.languages.get(tree.language ?? 'cypher');
       if (!lang) throw new QueryError(`Unknown query language "${tree.language}"`, 'UNKNOWN_LANGUAGE');
       const query = tree.builder ? lang.compile(tree.builder, ctx) : lang.prepare(tree.text!, ctx);
-      const res = await deps.dal.run(graphId, { query, limit, maxHops }).catch(asQueryError);
+      const res = await deps.dal.run(graphId, { query, limit: fetchLimit, maxHops }).catch(asQueryError);
       return { rows: res.routes, truncated: res.truncated };
     }
     const parts = await Promise.all(tree.args.map(evaluate));
@@ -79,7 +84,7 @@ export async function runQuery(deps: QueryDeps, graphId: string, body: unknown):
     if (truncated && tree.op !== 'union') {
       warnings.push({
         code: 'APPROXIMATE_SET_OPERATION',
-        message: `An operand of "${tree.op}" was truncated at ${limit} routes, so the result is approximate`,
+        message: `An operand of "${tree.op}" was truncated at ${fetchLimit} routes, so the result is approximate`,
       });
     }
     return {
@@ -92,25 +97,19 @@ export async function runQuery(deps: QueryDeps, graphId: string, body: unknown):
   };
 
   const evaluated = await evaluate(req.query);
-  const sorted = sortRows(evaluated.rows);
-  const truncated = evaluated.truncated || sorted.length > limit;
-  const rows = sorted.slice(0, limit);
+  const candidates = includeSubRoutes ? sortRows(evaluated.rows) : dropSubRoutes(evaluated.rows);
+  const truncated = evaluated.truncated || candidates.length > limit;
+  const rows = candidates.slice(0, limit);
   if (truncated) {
-    warnings.push({ code: 'TRUNCATED', message: `The result is limited to ${limit} routes; more routes match` });
+    warnings.push({
+      code: 'TRUNCATED',
+      message:
+        evaluated.truncated && !includeSubRoutes
+          ? `The search stopped after ${fetchLimit} matching routes, before sub-routes were removed; more routes may exist`
+          : `The result is limited to ${limit} routes; more routes match`,
+    });
   }
 
-  const nodeIds = [...new Set(rows.flatMap((r) => r.nodeIds))];
   const routes = rows.map(toRoute);
-  const edgeIds = [...new Set(routes.flatMap((r) => r.edgeIds))];
-  const nodes: Record<string, GraphNode> = {};
-  const edges: Record<string, GraphEdge> = {};
-  for (let i = 0; i < Math.max(nodeIds.length, edgeIds.length); i += 1000) {
-    const part = await deps.dal.entities(graphId, {
-      nodeIds: nodeIds.slice(i, i + 1000),
-      edgeIds: edgeIds.slice(i, i + 1000),
-    });
-    for (const n of part.nodes) nodes[n.id] = n;
-    for (const e of part.edges) edges[e.id] = e;
-  }
-  return { routes, nodes, edges, total: truncated ? null : routes.length, truncated, warnings };
+  return { routes, total: truncated ? null : routes.length, truncated, warnings };
 }

@@ -14,10 +14,13 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { GraphView } from '@gd/api-contract';
 import { ApiRequestError, api, useSchema, useView } from '../api';
+import { useRouteNodes } from '../routeNodes';
 import { useUI } from '../store';
 import { NODE_W, type GhostFlowNode, type KindFlowNode, type StubFlowNode } from './nodes';
 import { nodeTypes } from './nodeTypes';
-import { Overlays } from './Overlays';
+import { Overlays, type FocusSummary } from './Overlays';
+import { upstreamOf, upstreamOfEdge, type Highlight } from './highlight';
+import { vulnerabilityColor } from './severity';
 
 const Wrap = styled.div`
   position: relative;
@@ -33,9 +36,10 @@ const UNKNOWN = '#9aa0a6';
 function Flow() {
   const theme = useTheme();
   const rf = useReactFlow();
-  const { graphId, viewMode, result, selected, openNode, expandedView, pulse } = useUI();
-  const { setOpenNode, setExpandedView, pulseNode } = useUI.getState();
+  const { graphId, viewMode, result, selected, openNode, focus, expandedView, pulse } = useUI();
+  const { setOpenNode, setFocus, clearSelection, setExpandedView, pulseNode } = useUI.getState();
   const schema = useSchema(graphId).data;
+  const routeNodes = useRouteNodes();
 
   const route = result?.routes[selected];
   const graphMode = viewMode === 'graph';
@@ -51,6 +55,34 @@ function Flow() {
     (kind?: unknown) => colors[String(kind ?? 'unknown')] ?? colors.unknown ?? UNKNOWN,
     [colors],
   );
+
+  const severityScale = schema?.severityScale;
+  const warmColor = useCallback(
+    (node: Record<string, unknown>) => (severityScale ? vulnerabilityColor(node, severityScale) : undefined),
+    [severityScale],
+  );
+
+  // Highlighted part of the whole graph: the routes up to the clicked node / edge, else the selected route
+  const highlight: Highlight | null = useMemo(() => {
+    if (!graphMode || !view) return null;
+    if (focus?.type === 'node') return upstreamOf(focus.id, view.edges);
+    if (focus?.type === 'edge') return upstreamOfEdge(focus, view.edges);
+    if (route) return { nodes: new Set(route.nodeIds), edges: new Set(route.edgeIds) };
+    return null;
+  }, [graphMode, view, focus, route]);
+
+  const focusSummary: FocusSummary | null = useMemo(() => {
+    if (!focus || !highlight || !view) return null;
+    const name = (id: string) => String(view.nodes.find((n) => n.node.id === id)?.node.name ?? id);
+    return {
+      label:
+        focus.type === 'node'
+          ? `Routes up to ${name(focus.id)}`
+          : `Routes up to ${name(focus.to)} through ${name(focus.from)} → ${name(focus.to)}`,
+      nodes: highlight.nodes.size,
+      edges: highlight.edges.size,
+    };
+  }, [focus, highlight, view]);
 
   const expand = useMutation({
     mutationFn: (vars: { nodeId: string; mode: 'neighbors' | 'component' }) =>
@@ -77,9 +109,9 @@ function Flow() {
     const isPulsing = (id: string) => pulse?.nodeId === id;
 
     if (!graphMode) {
-      if (!route || !result) return { nodes, edges };
+      if (!route || !result || !routeNodes) return { nodes, edges };
       route.nodeIds.forEach((id, i) => {
-        const node = result.nodes[id];
+        const node = routeNodes[id];
         if (!node) return;
         const n: KindFlowNode = {
           id,
@@ -93,22 +125,21 @@ function Flow() {
             dimmed: false,
             open: id === openNode,
             pulsing: isPulsing(id),
+            severityColor: warmColor(node),
             node,
           },
         };
         nodes.push(n);
       });
-      route.edgeIds.forEach((id) => {
-        const e = result.edges[id];
-        if (e) {
-          edges.push(
-            baseEdge(id, e.from, e.to, {
-              animated: true,
-              markerEnd: arrow(theme.colors.accent),
-              style: { stroke: theme.colors.accent, strokeWidth: 3 },
-            }),
-          );
-        }
+      // a route's edges are its consecutive nodes: no need to fetch them to draw the route
+      route.edgeIds.forEach((id, i) => {
+        edges.push(
+          baseEdge(id, route.nodeIds[i], route.nodeIds[i + 1], {
+            animated: true,
+            markerEnd: arrow(theme.colors.accent),
+            style: { stroke: theme.colors.accent, strokeWidth: 3 },
+          }),
+        );
       });
       if (route.closesTo) {
         const last = route.nodeIds[route.nodeIds.length - 1];
@@ -117,8 +148,8 @@ function Flow() {
           type: 'ghost',
           position: { x: route.nodeIds.length * ROUTE_GAP, y: 0 },
           data: {
-            target: String(result.nodes[route.closesTo]?.name ?? route.closesTo),
-            color: colorOf(result.nodes[route.closesTo]?.kind),
+            target: String(routeNodes[route.closesTo]?.name ?? route.closesTo),
+            color: colorOf(routeNodes[route.closesTo]?.kind),
             dimmed: false,
           },
         };
@@ -134,33 +165,33 @@ function Flow() {
     }
 
     if (!view) return { nodes, edges };
-    const routeNodes = new Set(route?.nodeIds ?? []);
-    const routeEdges = new Set(route?.edgeIds ?? []);
-    const highlight = Boolean(route);
+    const lit = highlight;
     for (const vn of view.nodes) {
       const id = vn.node.id;
       const n: KindFlowNode = {
         id,
         type: 'kind',
         position: { x: vn.x, y: vn.y },
-        zIndex: id === openNode ? 1000 : routeNodes.has(id) ? 10 : 0,
+        zIndex: id === openNode ? 1000 : lit?.nodes.has(id) ? 10 : 0,
         data: {
           label: String(vn.node.name),
           color: colorOf(vn.node.kind),
           incomplete: Boolean(vn.node.incomplete),
-          dimmed: highlight && !routeNodes.has(id),
+          dimmed: lit !== null && !lit.nodes.has(id),
           open: id === openNode,
           pulsing: isPulsing(id),
+          severityColor: warmColor(vn.node),
           node: vn.node,
         },
       };
       nodes.push(n);
     }
     for (const e of view.edges) {
-      const hot = routeEdges.has(e.id);
+      const hot = lit?.edges.has(e.id) ?? false;
       edges.push(
         baseEdge(e.id, e.from, e.to, {
-          className: highlight && !hot ? 'dimmed' : undefined,
+          interactionWidth: 22,
+          className: lit !== null && !hot ? 'dimmed' : undefined,
           animated: hot,
           zIndex: hot ? 10 : 0,
           markerEnd: arrow(hot ? theme.colors.accent : theme.colors.edge),
@@ -173,19 +204,19 @@ function Flow() {
         id: s.id,
         type: 'stub',
         position: { x: s.x, y: s.y },
-        data: { count: s.count, nodeId: s.nodeId, dimmed: highlight && !routeNodes.has(s.nodeId) },
+        data: { count: s.count, nodeId: s.nodeId, dimmed: lit !== null && !lit.nodes.has(s.nodeId) },
       };
       nodes.push(stub);
       edges.push(
         baseEdge(`${s.id}-edge`, s.nodeId, s.id, {
-          className: highlight && !routeNodes.has(s.nodeId) ? 'dimmed' : undefined,
+          className: lit !== null && !lit.nodes.has(s.nodeId) ? 'dimmed' : undefined,
           style: { stroke: theme.colors.edge, strokeWidth: 1.2, strokeDasharray: '4 4' },
           markerEnd: undefined,
         }),
       );
     }
     return { nodes, edges };
-  }, [graphMode, route, result, view, openNode, pulse, colorOf, theme]);
+  }, [graphMode, route, result, routeNodes, view, highlight, openNode, pulse, colorOf, warmColor, theme]);
 
   // the viewport is re-fitted when the displayed graph changes, not when nodes are opened or expanded
   const fitKey = `${graphId}|${viewMode}|${route?.id ?? '-'}|${baseView.dataUpdatedAt}`;
@@ -208,11 +239,25 @@ function Flow() {
         expand.mutate({ nodeId: (node.data as { nodeId: string }).nodeId, mode: 'neighbors' });
       } else if (node.type === 'ghost') {
         if (route?.closesTo) pulseNode(route.closesTo);
+      } else if (useUI.getState().openNode === node.id) {
+        clearSelection();
       } else {
-        setOpenNode(useUI.getState().openNode === node.id ? null : node.id);
+        setOpenNode(node.id);
+        // in the whole graph, a clicked node also highlights the routes leading up to it
+        setFocus(graphMode ? { type: 'node', id: node.id } : null);
       }
     },
-    [expand, route, pulseNode, setOpenNode],
+    [expand, route, graphMode, pulseNode, setOpenNode, setFocus, clearSelection],
+  );
+
+  const onEdgeClick = useCallback(
+    (_: unknown, edge: Edge) => {
+      const original = view?.edges.find((e) => e.id === edge.id);
+      if (!graphMode || !original) return; // route lines, cycle markers and +N links are not selectable
+      setOpenNode(null);
+      setFocus({ type: 'edge', id: original.id, from: original.from, to: original.to });
+    },
+    [graphMode, view, setOpenNode, setFocus],
   );
 
   const error = (graphMode && baseView.error) || expand.error;
@@ -223,7 +268,8 @@ function Flow() {
         edges={edges}
         nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
-        onPaneClick={() => setOpenNode(null)}
+        onEdgeClick={onEdgeClick}
+        onPaneClick={clearSelection}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
@@ -235,9 +281,10 @@ function Flow() {
       </ReactFlow>
       <Overlays
         view={view}
-        loading={graphMode && baseView.isLoading}
+        loading={graphMode ? baseView.isLoading : result !== null && routeNodes === undefined}
         error={error instanceof ApiRequestError ? error.message : error ? 'Something went wrong' : null}
         expanding={expand.isPending}
+        focus={focusSummary}
         onLoadComponent={(nodeId) => expand.mutate({ nodeId, mode: 'component' })}
       />
     </>

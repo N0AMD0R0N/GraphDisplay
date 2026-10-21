@@ -74,6 +74,68 @@ paths:
       responses:
         '204': { description: Deleted }
         '404': { $ref: '#/components/responses/NotFound' }
+  /graphs/{id}/nodes:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getNodes
+      summary: Nodes by id (all their original properties)
+      description: >
+        The routes returned by a query list node ids only. This returns the nodes for ids you ask for (at most 1000
+        per request; repeat the `id` parameter). Unknown ids are left out; the others are returned in the order requested.
+      parameters:
+        - {
+            name: id,
+            in: query,
+            required: true,
+            style: form,
+            explode: true,
+            schema: { type: array, items: { type: string }, minItems: 1, maxItems: 1000 },
+          }
+      responses:
+        '200':
+          {
+            description: The nodes,
+            content:
+              { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GraphNode' } } } },
+          }
+        '400':
+          {
+            description: No ids,
+            or more than 1000,
+            content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } },
+          }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /graphs/{id}/edges:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getEdges
+      summary: Edges by id (normalised, one object per edge)
+      description: The edge ids of a route are `from->to`. At most 1000 ids per request; repeat the `id` parameter.
+      parameters:
+        - {
+            name: id,
+            in: query,
+            required: true,
+            style: form,
+            explode: true,
+            schema: { type: array, items: { type: string }, minItems: 1, maxItems: 1000 },
+          }
+      responses:
+        '200':
+          {
+            description: The edges,
+            content:
+              { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GraphEdge' } } } },
+          }
+        '400':
+          {
+            description: No ids,
+            or more than 1000,
+            content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } },
+          }
+        '404': { $ref: '#/components/responses/NotFound' }
   /graphs/{id}/schema:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -130,15 +192,39 @@ paths:
   /graphs/{id}/routes/query:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
-    post:
+    get:
       operationId: queryRoutes
       summary: Find routes
       description: >
         Evaluates a set tree (union / intersect / except) whose leaves are builder condition trees or raw Cypher.
         Raw queries must be read-only, scoped with `$g` and return one path or node variable.
-      requestBody:
-        required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/QueryRequest' } } }
+        The query is part of the URL, so it can be bookmarked and shared; the UI mirrors it in its own address bar.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: The query as JSON (a SetTree, see the SetTree schema), URL-encoded.
+          schema: { type: string }
+        - {
+            name: limit,
+            in: query,
+            required: false,
+            schema: { type: integer, minimum: 1, maximum: 10000, default: 1000 },
+          }
+        - {
+            name: maxHops,
+            in: query,
+            required: false,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 50 },
+          }
+        - { name: routeMode, in: query, required: false, schema: { type: string, enum: [all, maximal], default: all } }
+        - name: includeSubRoutes
+          in: query
+          required: false
+          description: >
+            By default a route that lies inside another route of the result (the same nodes in the same order, so the
+            same edges) is left out, so no returned route is part of another. Set to true to get the sub-routes too.
+          schema: { type: boolean, default: false }
       responses:
         '200':
           {
@@ -147,7 +233,7 @@ paths:
           }
         '400':
           {
-            description: Body is not JSON,
+            description: '"q" is missing or is not valid JSON',
             content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } },
           }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -465,11 +551,9 @@ components:
         closesTo: { type: string, description: Node of the route that the last node points back to (cycle marker) }
     QueryResult:
       type: object
-      required: [routes, nodes, edges, total, truncated, warnings]
+      required: [routes, total, truncated, warnings]
       properties:
         routes: { type: array, items: { $ref: '#/components/schemas/Route' } }
-        nodes: { type: object, additionalProperties: { $ref: '#/components/schemas/GraphNode' } }
-        edges: { type: object, additionalProperties: { $ref: '#/components/schemas/GraphEdge' } }
         total: { type: integer, nullable: true, description: null when the result was truncated }
         truncated: { type: boolean }
         warnings: { type: array, items: { $ref: '#/components/schemas/Warning' } }

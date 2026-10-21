@@ -58,6 +58,7 @@ export const queryRequestSchema = v.strictObject({
   limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(DEFAULTS.limitCeiling))),
   maxHops: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(DEFAULTS.maxHopsCeiling))),
   routeMode: v.optional(v.picklist(['all', 'maximal'])),
+  includeSubRoutes: v.optional(v.boolean()),
 });
 
 /** Counts builder rules (leaf conditions) in a set tree (A5.1). */

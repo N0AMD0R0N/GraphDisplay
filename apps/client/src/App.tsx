@@ -5,6 +5,7 @@ import { Canvas } from './graph/Canvas';
 import { QueryDrawer } from './layout/QueryDrawer';
 import { TopBar } from './layout/TopBar';
 import { useUI } from './store';
+import { writeUrl } from './urlSync';
 
 const Shell = styled.div`
   display: flex;
@@ -37,7 +38,22 @@ const isTyping = (el: EventTarget | null) =>
 
 export function App() {
   const graphs = useGraphs();
-  const { graphId, setGraphId, drawerOpen, toggleDrawer, setOpenNode, setRouteListOpen, selectRoute } = useUI();
+  const { graphId, setGraphId, drawerOpen, toggleDrawer, clearSelection, setRouteListOpen, selectRoute } = useUI();
+  const result = useUI((s) => s.result);
+  const selected = useUI((s) => s.selected);
+  const viewMode = useUI((s) => s.viewMode);
+
+  // what is on screen is mirrored in the address bar (the query itself is written by the query panel)
+  useEffect(() => {
+    writeUrl({ graph: graphId ?? undefined });
+  }, [graphId]);
+  useEffect(() => {
+    writeUrl({
+      run: result ? true : undefined,
+      route: result && selected > 0 ? selected : undefined,
+      view: result ? viewMode : undefined,
+    });
+  }, [result, selected, viewMode]);
 
   // pick a graph once the list is known (the pinned seed graph first)
   useEffect(() => {
@@ -49,7 +65,7 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setOpenNode(null);
+        clearSelection();
         setRouteListOpen(false);
       }
       if (isTyping(e.target)) return;
@@ -59,7 +75,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setOpenNode, setRouteListOpen, selectRoute]);
+  }, [clearSelection, setRouteListOpen, selectRoute]);
 
   return (
     <Shell>

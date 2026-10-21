@@ -40,9 +40,12 @@ Tests start their own isolated Neo4j and Redis with Testcontainers (Docker requi
 ## Using the UI
 
 - **Whole graph** shows up to the 200 most connected nodes. A **+N** bubble is a node with hidden neighbours: click it to load them. The **hidden components** chip lists groups that are not connected to what is shown.
-- **Query panel** (left, collapsible): build conditions as _position_ (first / last / any / every / no node) × _property_ × _operator_ × _value_, or switch to **Cypher**. **Add a preset** inserts ready-made rules (public entry, ends in sink, has vulnerability, severity at least, a CWE, public → vulnerable → sink). **+ Add a query to combine** adds a second query joined by union, intersection or difference.
-- **Results**: the first route is shown; step with the arrows (← / → keys) or open the list. **Route only** shows the route alone, **Whole graph** highlights it (everything else is dimmed). A dashed ghost node `↺ b` marks a route whose last node calls back into the route.
-- **Click a node** for all its properties (stays open until you click elsewhere or press Esc). **Upload JSON** adds another graph.
+- **Query panel** (left, collapsible): build conditions as _position_ (first / last / any / every / no node) × _property_ × _operator_ × _value_, or switch to **Cypher**. **Add a preset** inserts ready-made rules (public entry, ends in sink, has vulnerability, severity at least, a CWE, public → vulnerable → sink). **+ Add a query to combine** adds another query, joined by **intersection** by default (routes that match both); the operator can be changed to union or difference.
+- **Results**: the first route is shown; step with the arrows (← / → keys), the selector reads `1 / 42 routes`. The list shows every route with its text in the colour of its **highest vulnerability severity** (same colours as the node borders, bold; black when the route passes no vulnerable node). **Route only** shows the route alone, **Whole graph** highlights it (everything else is dimmed). A dashed ghost node `↺ b` marks a route whose last node calls back into the route.
+- **Click a node** for all its properties (stays open until you click elsewhere or press Esc). In the whole-graph view this also **highlights every route leading up to that node**; clicking an **edge** highlights only the routes that end at the node it points to **and pass through that edge**. Click empty space, press Esc or use *Clear* to remove it.
+- **Vulnerabilities** are shown as a glowing warm border, from light orange (low) to pinkish red (critical).
+- **include sub-routes** (next to *Run query*) is off by default: a route that lies inside another route of the result is not listed. **Full graph** (next to *Collapse*) drops the query result and returns to the whole graph.
+- **The query is in the address bar** and follows the editor while you type, so you can bookmark or share it. Opening such a URL restores the editor and, if it showed a result, runs it and selects the same route. **Upload JSON** adds another graph.
 
 ### Input format
 
@@ -57,22 +60,22 @@ Tests start their own isolated Neo4j and Redis with Testcontainers (Docker requi
 
 ## API
 
-`POST /graphs` (upload), `GET /graphs`, `GET /graphs/:id`, `DELETE /graphs/:id`, `GET /graphs/:id/schema`, `GET /graphs/:id/view`, `POST /graphs/:id/view/expand`, `POST /graphs/:id/routes/query`. The full contract is in [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml).
+`POST /graphs` (upload), `GET /graphs`, `GET /graphs/:id`, `DELETE /graphs/:id`, `GET /graphs/:id/schema`, `GET /graphs/:id/view`, `POST /graphs/:id/view/expand`, `GET /graphs/:id/nodes?id=…`, `GET /graphs/:id/edges?id=…`, `GET /graphs/:id/routes/query`. The full contract is in [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml).
 
 ```bash
 # routes of 5+ nodes that end in the database, except those that pass through travel-service
-curl -X POST http://127.0.0.1:8080/api/graphs/<graphId>/routes/query -H 'content-type: application/json' -d '{
-  "query": { "op": "except", "args": [
-    { "op": "leaf", "builder": { "type": "group", "combinator": "and", "rules": [
-        { "type": "rule", "position": "last", "path": "name", "op": "eq", "value": "prod-postgresdb" },
-        { "type": "length", "min": 5 } ] } },
-    { "op": "leaf", "text": "MATCH p = (a:Node {graphId: $g})-[:CALLS*0..6]->(b:Node {graphId: $g}) WHERE any(n IN nodes(p) WHERE n.name = 'travel-service') RETURN p" }
-  ] },
-  "limit": 1000, "maxHops": 50, "routeMode": "all"
-}'
+# (5 routes; add --data-urlencode "includeSubRoutes=true" to also get the routes that lie inside another one)
+# (the query is the "q" parameter: the set tree as JSON, URL-encoded)
+Q='{"op":"except","args":[
+  {"op":"leaf","builder":{"type":"group","combinator":"and","rules":[
+    {"type":"rule","position":"last","path":"name","op":"eq","value":"prod-postgresdb"},
+    {"type":"length","min":5}]}},
+  {"op":"leaf","text":"MATCH p = (a:Node {graphId: $g})-[:CALLS*0..6]->(b:Node {graphId: $g}) WHERE any(n IN nodes(p) WHERE n.name = '"'"'travel-service'"'"') RETURN p"}]}'
+curl -G "http://127.0.0.1:8080/api/graphs/<graphId>/routes/query" \
+  --data-urlencode "q=$Q" --data-urlencode "limit=1000" --data-urlencode "maxHops=50" --data-urlencode "routeMode=all"
 ```
 
-Raw Cypher must be read-only, scoped with `{graphId: $g}`, and return one path or node variable. Results are `Route` objects (ordered node and edge ids; nodes and edges carry all original properties), longest first, with `total`, `truncated` and `warnings`.
+Raw Cypher must be read-only, scoped with `{graphId: $g}`, and return one path or node variable. The query returns **the routes only**: `{ routes, total, truncated, warnings }`. A route lists the ids of its nodes and edges, longest first. By default a route that lies inside another returned route (the same nodes in the same order) is left out, so no route is part of another; add `includeSubRoutes=true` to get them too. The properties of nodes and edges are fetched separately by id, at most 1,000 per request: `GET /graphs/<graphId>/nodes?id=frontend&id=order-service` and `GET /graphs/<graphId>/edges?id=order-service->prod-postgresdb`.
 
 ## Architecture
 

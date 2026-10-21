@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import type { GraphView } from '@gd/api-contract';
 import { useSchema } from '../api';
 import { useUI } from '../store';
+import { severityColor } from './severity';
 
 const Layer = styled.div`
   position: absolute;
@@ -102,17 +103,58 @@ const Legend = styled.div`
   }
 `;
 
+export interface FocusSummary {
+  label: string;
+  nodes: number;
+  edges: number;
+}
+
+const FocusChip = styled.div`
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 14px;
+  max-width: calc(100% - 420px);
+  font-size: 13px;
+  background: ${(p) => p.theme.colors.accentSoft};
+  border: 1px solid ${(p) => p.theme.colors.accent};
+  border-radius: 18px;
+  box-shadow: ${(p) => p.theme.shadow};
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  small {
+    color: ${(p) => p.theme.colors.muted};
+    white-space: nowrap;
+  }
+  button {
+    border: 0;
+    background: ${(p) => p.theme.colors.surface};
+    border-radius: 12px;
+    padding: 2px 10px;
+    cursor: pointer;
+  }
+`;
+
 export interface OverlaysProps {
   view: GraphView | undefined;
   loading: boolean;
   error: string | null;
   expanding: boolean;
+  focus: FocusSummary | null;
   onLoadComponent(nodeId: string): void;
 }
 
 /** Empty / loading / error states and the "hidden components" and legend corners (WorkPlan C7, C9). */
-export function Overlays({ view, loading, error, expanding, onLoadComponent }: OverlaysProps) {
-  const { graphId, viewMode, result } = useUI();
+export function Overlays({ view, loading, error, expanding, focus, onLoadComponent }: OverlaysProps) {
+  const { graphId, viewMode, result, clearSelection } = useUI();
   const schema = useSchema(graphId).data;
   const [open, setOpen] = useState(false);
   const empty = viewMode === 'route' && result !== null && result.routes.length === 0;
@@ -131,10 +173,10 @@ export function Overlays({ view, loading, error, expanding, onLoadComponent }: O
           </Card>
         </Center>
       )}
-      {loading && !view && viewMode === 'graph' && (
+      {loading && (viewMode === 'route' || !view) && (
         <Center>
           <Card>
-            <p>Loading the graph…</p>
+            <p>{viewMode === 'route' ? 'Loading the route…' : 'Loading the graph…'}</p>
           </Card>
         </Center>
       )}
@@ -155,6 +197,20 @@ export function Overlays({ view, loading, error, expanding, onLoadComponent }: O
         </Center>
       )}
 
+      {focus && (
+        <FocusChip>
+          <span>
+            <b>{focus.label}</b>
+          </span>
+          <small>
+            {focus.nodes} node{focus.nodes === 1 ? '' : 's'}, {focus.edges} edge{focus.edges === 1 ? '' : 's'}
+          </small>
+          <button type="button" onClick={clearSelection}>
+            Clear
+          </button>
+        </FocusChip>
+      )}
+
       {(schema?.kinds.length ?? 0) > 0 && (
         <Corner $pos="tl" style={{ left: 'auto', right: 12, top: 12 }}>
           <Legend>
@@ -165,6 +221,18 @@ export function Overlays({ view, loading, error, expanding, onLoadComponent }: O
             ))}
             <span>
               <i style={{ background: '#fff', borderStyle: 'dashed' }} /> incomplete
+            </span>
+            <span title="Nodes with vulnerabilities have a glowing border, from light orange (low severity) to pinkish red (critical)">
+              <i
+                style={{
+                  width: 34,
+                  borderRadius: 6,
+                  border: 'none',
+                  background: `linear-gradient(90deg, ${severityColor(0)}, ${severityColor(1)})`,
+                  boxShadow: `0 0 4px 1px ${severityColor(0.5)}b0`,
+                }}
+              />{' '}
+              vulnerability
             </span>
           </Legend>
         </Corner>

@@ -32,13 +32,22 @@ describe('explosion guards (WorkPlan A4, A4.1)', () => {
   });
 
   it('a raw query without ORDER BY streams and ends at the route limit', async () => {
-    const res = await stack.query(dense, {
-      query: { op: 'leaf', text: 'MATCH p = (a:Node {graphId: $g})-[:CALLS*0..8]->(b:Node) RETURN p' },
-      limit: 50,
-    });
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ truncated: true });
-    expect(res.body.routes).toHaveLength(50);
+    // its own stack with a normal time limit (the 60 ms above is for the timeout tests) and its own graph (another seed):
+    // graph ids are content hashes, so the same content would be deleted under the other stack
+    const normal = await createStack();
+    try {
+      const id = await normal.uploadOk(generateGraph({ seed: 5, nodes: 300, edges: 3500, layers: 6 }), 'dense');
+      const res = await normal.query(id, {
+        query: { op: 'leaf', text: 'MATCH p = (a:Node {graphId: $g})-[:CALLS*0..8]->(b:Node) RETURN p' },
+        limit: 50,
+        includeSubRoutes: true,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ truncated: true });
+      expect(res.body.routes).toHaveLength(50);
+    } finally {
+      await normal.close();
+    }
   });
 
   it('stays healthy after a timeout and still answers selective queries', async () => {

@@ -23,8 +23,11 @@ export const FIXED_KINDS: Record<string, Slot> = {
   rds: { h: 28, l: BASE_LIGHTNESS },
   sqs: { h: 140, l: BASE_LIGHTNESS },
 };
-/** Hues the UI uses for non-kind purposes (the route highlight accent); never assigned to a kind. */
-export const RESERVED_SLOTS: Slot[] = [{ h: 350, l: BASE_LIGHTNESS }];
+/**
+ * Hues the UI uses for non-kind purposes; never assigned to a kind: the cyan accent of route highlights and
+ * animated edges (pink to red is the vulnerability severity scale, so it must not mean anything else).
+ */
+export const RESERVED_SLOTS: Slot[] = [{ h: 190, l: BASE_LIGHTNESS }];
 
 /** Circular hue distance in degrees, 0..180. */
 export function hueDistance(a: number, b: number): number {
